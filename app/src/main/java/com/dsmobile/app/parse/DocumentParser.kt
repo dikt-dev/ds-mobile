@@ -30,8 +30,14 @@ object DocumentParser {
             OfficeParser.parse(name, bytes)
         } else if (isPdf) {
             PDFBoxResourceLoader.init(context.applicationContext)
-            PDDocument.load(bytes).use { doc ->
+            val pdfText = PDDocument.load(bytes).use { doc ->
                 PDFTextStripper().getText(doc)
+            }
+            if (pdfText.trim().length >= 30) {
+                pdfText
+            } else {
+                // 扫描版 PDF 没有文字层，回退到逐页 OCR。
+                OcrParser.ocrPdf(context, bytes).ifBlank { pdfText }
             }
         } else {
             decodeText(bytes)
@@ -39,7 +45,7 @@ object DocumentParser {
 
         if (text.isEmpty()) {
             throw IllegalStateException(
-                if (isPdf) "PDF 没有可提取文字（扫描件 OCR 后续支持）" else "文件没有可提取文字"
+                if (isPdf) "PDF 没有可提取文字（扫描件 OCR 也失败）" else "文件没有可提取文字"
             )
         }
         ParsedDocument(name, text.take(MAX_CHARS))

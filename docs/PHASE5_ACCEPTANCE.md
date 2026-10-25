@@ -1,7 +1,7 @@
 # DS-Mobile 阶段 5 验收记录（文件解析，进行中）
 
 > 日期：2026-10-25  
-> 状态：**PDF/TXT 端到端；DOCX/XLSX/PPTX/ZIP/7z/RAR 自测通过；文件选择器 Office 端到端待补**
+> 状态：**PDF/TXT 端到端；DOCX/XLSX/PPTX/ZIP/7z/RAR4/扫描 PDF OCR 自测通过；文件选择器 Office 端到端待补**
 
 ---
 
@@ -11,7 +11,8 @@
 |---|---|
 | 文件入口 | 聊天输入栏「文件」按钮，`OpenDocument` |
 | 支持类型 | PDF、text/* |
-| PDF 解析 | PDFBox-Android `PDFTextStripper` |
+| PDF 解析 | PDFBox-Android `PDFTextStripper`；无文字层自动回退 OCR |
+| 扫描 PDF OCR | ✅ ML Kit 中文 OCR，K60 实测 42 字符（“扫描版PDF OCR 试 大肥鱼你好…”） |
 | 文本解码 | UTF-8，异常时回退 GBK |
 | 限制 | 单文件 ≤ 20MB，输出 ≤ 30,000 字符 |
 | 发送 | 解析文本以 `【文件：name】` 前缀发给 Worker |
@@ -54,6 +55,7 @@ zip-test.zip: 153 字符
 
 - 文件选择器直接选 DOCX/XLSX/PPTX/ZIP/7z 的端到端测试；
 - RAR5 支持（junrar 7.5.5 报 `UnsupportedRarV5Exception`）；
+- OCR 目前最多 10 页，后续可做页数/耗时选择；
 - 扫描 PDF OCR；
 - 超长文本分段/摘要；
 - 文件发送 outbox。

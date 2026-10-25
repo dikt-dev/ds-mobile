@@ -72,11 +72,17 @@ object ParseSpike {
                     text.replace('\n', ' ').take(160)
             }.getOrElse { "RAR: 失败 ${it.javaClass.simpleName}: ${it.message}" }
 
+            val ocr = runCatching {
+                val data = context.assets.open("test/scan-test.pdf").readBytes()
+                val text = OcrParser.ocrPdf(context, data)
+                "OCR: ${text.length} 字符\n" + text.replace('\n', ' ').take(160)
+            }.getOrElse { "OCR: 失败 ${it.javaClass.simpleName}: ${it.message}" }
+
             "PDF: 50 页, $chars 字符, 生成 ${pdfRead - pdfCreate}ms, 解析 ${pdfEnd - pdfRead}ms\n" +
                 "ZIP: $entries 条目, ${bytes / 1024}KB, 生成 ${zipRead - zipCreate}ms, 解析 ${zipEnd - zipRead}ms\n" +
                 "文件: ${pdf.length() / 1024}KB / ${zip.length() / 1024}KB\n" +
                 "Office:\n$office\n" +
-                rar
+                rar + "\n" + ocr
         } catch (e: Throwable) {
             "解析失败: ${e.javaClass.simpleName}: ${e.message}"
         }
