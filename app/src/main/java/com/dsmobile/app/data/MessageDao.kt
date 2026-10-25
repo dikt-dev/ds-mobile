@@ -9,7 +9,8 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface MessageDao {
-    @Query("SELECT * FROM (SELECT * FROM messages ORDER BY id DESC LIMIT 300) ORDER BY id ASC")
+    // 本地 Room 就是聊天记录缓存；不再只取 300 条，避免往上翻时缺历史。
+    @Query("SELECT * FROM messages ORDER BY id ASC")
     fun observe(): Flow<List<MessageEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)

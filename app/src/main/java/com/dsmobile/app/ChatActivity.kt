@@ -81,6 +81,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -347,6 +348,7 @@ private fun ChatScreen(
     var streamingText by remember { mutableStateOf("") }
     var showSettings by remember { mutableStateOf(false) }
     var initialScrollDone by remember { mutableStateOf(false) }
+    var stickToBottom by remember { mutableStateOf(true) }
     var animateSegments by remember { mutableStateOf(false) }
     val failedPendingIds = remember { mutableStateMapOf<Long, Boolean>() }
     val scope = rememberCoroutineScope()
@@ -354,30 +356,35 @@ private fun ChatScreen(
 
     suspend fun syncEvents() {
         var after = dao.maxId()
+        val changed = mutableListOf<MessageEntity>()
         while (true) {
             val page = api.events(after, 100)
             if (page.messages.isEmpty()) break
-            dao.insertAll(page.messages)
+            changed.addAll(page.messages)
             val next = page.messages.last().id
             if (!page.hasMore || next <= after) break
             after = next
         }
+        if (changed.isNotEmpty()) dao.insertAll(changed)
     }
 
     /** 首装全量补齐；之后只走 syncEvents 增量。 */
     suspend fun syncAllHistory() {
         var after = 0L
+        val all = mutableListOf<MessageEntity>()
         while (true) {
             val page = api.events(after, 100)
             if (page.messages.isEmpty()) break
-            dao.insertAll(page.messages)
+            all.addAll(page.messages)
             val next = page.messages.last().id
             if (!page.hasMore || next <= after) break
             after = next
         }
+        if (all.isNotEmpty()) dao.insertAll(all)
     }
 
     suspend fun sendText(text: String) {
+        stickToBottom = true
         busy = true
         // 不显示“发送中”，等待期间只显示正在输入状态。
         status = "等待回复…"
@@ -694,8 +701,19 @@ private fun ChatScreen(
             }
         }
     }
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.isScrollInProgress to listState.canScrollForward }
+            .collect { (scrolling, canForward) ->
+                if (scrolling) {
+                    if (canForward) stickToBottom = false
+                } else {
+                    stickToBottom = !canForward
+                }
+            }
+    }
     val scrollToLatest: () -> Unit = {
         scope.launch {
+            if (!stickToBottom) return@launch
             delay(120)
             val count = messages.size + pending.size + if (streamingText.isNotEmpty() || isTyping) 1 else 0
             if (count > 0 && !listState.isScrollInProgress) {
@@ -714,7 +732,7 @@ private fun ChatScreen(
             }
             listState.scrollToItem(itemCount)
             initialScrollDone = true
-        } else if (!listState.isScrollInProgress) {
+        } else if (stickToBottom && !listState.isScrollInProgress) {
             listState.animateScrollToItem(itemCount)
         }
     }
