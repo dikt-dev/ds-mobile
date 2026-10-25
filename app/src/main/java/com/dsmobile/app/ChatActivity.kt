@@ -1252,18 +1252,40 @@ private val VOICE_MARKERS = listOf("【语音】", "【语音消息】", "[语�
 
 private fun splitSentences(text: String): List<String> {
     val out = mutableListOf<String>()
-    text.split(Regex("(?<=[。！？!?；;\\n])")).forEach { raw ->
-        var s = raw.trim()
-        if (s.isEmpty()) return@forEach
-        while (s.length > 120) {
-            var cut = s.indexOf('，', 60)
-            if (cut < 0) cut = s.indexOf(',', 60)
-            if (cut < 0) cut = 120
-            out.add(s.substring(0, cut + 1).trim())
-            s = s.substring(cut + 1).trim()
-        }
+    var start = 0
+    var depth = 0
+    var quoteClose: Char? = null
+    fun flush(endExclusive: Int) {
+        val s = text.substring(start, endExclusive).trim()
         if (s.isNotEmpty()) out.add(s)
+        start = endExclusive
     }
+    for (i in text.indices) {
+        val c = text[i]
+        if (quoteClose != null) {
+            if (c == quoteClose) quoteClose = null
+            continue
+        }
+        when (c) {
+            '「' -> {
+                quoteClose = '」'
+                continue
+            }
+            '“' -> {
+                quoteClose = '”'
+                continue
+            }
+            '（', '(', '【', '[' -> depth++
+            '）', ')', '】', ']' -> if (depth > 0) depth--
+        }
+        // 括号/引号内的标点不拆，保证一个动作描述完整。
+        if (depth == 0 && (c == '。' || c == '！' || c == '？' || c == '!' ||
+                c == '；' || c == ';' || c == '\n')
+        ) {
+            flush(i + 1)
+        }
+    }
+    flush(text.length)
     return out
 }
 
