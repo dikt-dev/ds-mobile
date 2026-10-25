@@ -41,7 +41,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -85,6 +87,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -554,6 +557,18 @@ private fun ChatScreen(
 
     val isTyping = busy && streamingText.isEmpty() && isTypingStatus(status)
     val itemCount = messages.size + pending.size + if (streamingText.isNotEmpty() || isTyping) 1 else 0
+    val imeHeight = WindowInsets.ime.getBottom(LocalDensity.current)
+
+    // 键盘弹出时聊天区域变矮，滚动位置不会自动跟着，主动重新贴底。
+    LaunchedEffect(imeHeight, itemCount) {
+        if (imeHeight > 0 && itemCount > 0) {
+            repeat(3) {
+                delay(60)
+                listState.scrollToItem(itemCount)
+                withFrameNanos { }
+            }
+        }
+    }
     val scrollToLatest: () -> Unit = {
         scope.launch {
             val count = messages.size + pending.size + if (streamingText.isNotEmpty() || isTyping) 1 else 0
