@@ -73,6 +73,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -308,6 +309,7 @@ private fun ChatScreen(
     var showSettings by remember { mutableStateOf(false) }
     var initialScrollDone by remember { mutableStateOf(false) }
     var animateSegments by remember { mutableStateOf(false) }
+    val failedPendingIds = remember { mutableStateMapOf<Long, Boolean>() }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
 
@@ -372,6 +374,7 @@ private fun ChatScreen(
             clientMessageId = UUID.randomUUID().toString(),
         )
         val pendingId = dao.insertPending(pendingMessage)
+        failedPendingIds.remove(pendingId)
         try {
             // 非流式等待完整回复，避免一边输出一边重排；语音先合成，再让消息进入列表逐句展示。
             val reply = if (frames.isNotEmpty()) {
@@ -392,12 +395,14 @@ private fun ChatScreen(
                 .distinct()
             voices.forEach { TtsManager.prepare(context, settings, it) }
             dao.deletePending(pendingMessage.copy(id = pendingId))
+            failedPendingIds.remove(pendingId)
             delay(100)
             syncEvents()
             streamingText = ""
             status = ""
         } catch (e: Exception) {
             frames.forEach { it.recycle() }
+            failedPendingIds[pendingId] = true
             status = "发送失败：${e.message}，可在下方重试"
             streamingText = ""
         } finally {
@@ -659,17 +664,21 @@ private fun ChatScreen(
                 PendingBubble(
                     message = message,
                     busy = busy,
+                    failed = failedPendingIds[message.id] == true,
                     onRetry = {
                         scope.launch {
                             busy = true
+                            failedPendingIds.remove(message.id)
                             status = "重试发送…"
                             try {
                                 api.chat(message.content, message.clientMessageId)
                                 dao.deletePending(message)
+                                failedPendingIds.remove(message.id)
                                 delay(300)
                                 syncEvents()
                                 status = ""
                             } catch (e: Exception) {
+                                failedPendingIds[message.id] = true
                                 status = "发送失败：${e.message}"
                             } finally {
                                 busy = false
@@ -1762,9 +1771,35 @@ private fun TypingBubble() {
 }
 
 @Composable
+private fun ReadStatus(failed: Boolean) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            if (failed) "失败" else "已读",
+            style = MaterialTheme.typography.labelSmall,
+            color = if (failed) Color(0xFFE53935) else Color(0xFF8A8A8A),
+        )
+        Spacer(Modifier.width(4.dp))
+        Surface(
+            shape = CircleShape,
+            color = if (failed) Color(0xFFE53935) else Color(0xFF43A047),
+            modifier = Modifier.size(14.dp),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Text(
+                    if (failed) "×" else "✓",
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun PendingBubble(
     message: PendingMessageEntity,
     busy: Boolean,
+    failed: Boolean,
     onRetry: () -> Unit,
 ) {
     Column(
@@ -1790,10 +1825,13 @@ private fun PendingBubble(
                     overflow = TextOverflow.Ellipsis,
                     color = Color(0xFF1F1F1F),
                 )
-                TextButton(onClick = onRetry, enabled = !busy) {
-                    Text(if (busy) "发送中…" else "重试")
+                if (failed) {
+                    TextButton(onClick = onRetry, enabled = !busy) { Text("重试") }
                 }
             }
+        }
+        if (failed) {
+            ReadStatus(failed = true)
         }
     }
 }
@@ -1933,6 +1971,11 @@ private fun MessageBubble(
             modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
         )
         if (bodyText.isNotEmpty() || imageKeys.isNotEmpty() || biliUrls.isNotEmpty() || webUrls.isNotEmpty() || mediaItems.isNotEmpty() || fileMatch != null) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
+                verticalAlignment = Alignment.Bottom,
+            ) {
             Surface(
                 modifier = Modifier.widthIn(max = 300.dp),
                 shape = if (isUser) {
@@ -1981,6 +2024,11 @@ private fun MessageBubble(
                         WebLinkCard(api, url)
                     }
                 }
+            }
+            if (isUser) {
+                Spacer(Modifier.width(4.dp))
+                ReadStatus(failed = false)
+            }
             }
         }
         if (isVoice) {
