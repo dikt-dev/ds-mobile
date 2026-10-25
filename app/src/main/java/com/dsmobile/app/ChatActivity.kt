@@ -806,9 +806,12 @@ private fun DayDivider(day: String) {
 @Composable
 private fun WebLinkCard(api: ApiClient, url: String) {
     val uriHandler = LocalUriHandler.current
-    var preview by remember(url) { mutableStateOf<WebPreview?>(null) }
+    var preview by remember(url) { mutableStateOf(MediaCaches.webPreview(url)) }
     LaunchedEffect(url) {
-        preview = runCatching { api.webPreview(url) }.getOrNull()
+        if (preview == null) {
+            preview = runCatching { api.webPreview(url) }.getOrNull()
+            preview?.let { MediaCaches.putWebPreview(url, it) }
+        }
     }
     val isDouyin = preview?.douyin == true || url.contains("douyin", ignoreCase = true)
     val site = preview?.site?.ifBlank { null } ?: url.substringAfter("://").substringBefore('/')
@@ -940,9 +943,12 @@ private fun formatBytes(bytes: Long): String = when {
 @Composable
 private fun BilibiliCard(api: ApiClient, url: String) {
     val uriHandler = LocalUriHandler.current
-    var preview by remember(url) { mutableStateOf<BiliPreview?>(null) }
+    var preview by remember(url) { mutableStateOf(MediaCaches.biliPreview(url)) }
     LaunchedEffect(url) {
-        preview = runCatching { api.biliPreview(url) }.getOrNull()
+        if (preview == null) {
+            preview = runCatching { api.biliPreview(url) }.getOrNull()
+            preview?.let { MediaCaches.putBiliPreview(url, it) }
+        }
     }
     val displayUrl = url
         .removePrefix("https://")
@@ -1366,19 +1372,9 @@ private fun MediaBubble(api: ApiClient, key: String, isGif: Boolean) {
 @Composable
 private fun VideoBubble(api: ApiClient, key: String) {
     val context = LocalContext.current
-    val player = remember(key) {
-        val dataSource = DefaultHttpDataSource.Factory()
-            .setDefaultRequestProperties(api.mediaHeaders())
-        ExoPlayer.Builder(context)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSource))
-            .build()
-            .apply {
-                setMediaItem(MediaItem.fromUri(api.mediaUrl(key)))
-                prepare()
-            }
-    }
+    val player = remember(key) { MediaCaches.player(context, api, key) }
     DisposableEffect(player) {
-        onDispose { player.release() }
+        onDispose { player.pause() }
     }
     AndroidView(
         factory = { ctx ->
@@ -1398,17 +1394,21 @@ private fun VideoBubble(api: ApiClient, key: String) {
 
 @Composable
 private fun GifBubble(api: ApiClient, key: String) {
-    var drawable by remember(key) { mutableStateOf<Drawable?>(null) }
+    var drawable by remember(key) { mutableStateOf(MediaCaches.image(key)) }
     LaunchedEffect(key) {
-        runCatching { api.mediaBytes(key) }.onSuccess { bytes ->
-            val decoded = ImageDecoder.decodeDrawable(
-                ImageDecoder.createSource(java.nio.ByteBuffer.wrap(bytes))
-            )
-            (decoded as? AnimatedImageDrawable)?.start()
-            drawable = decoded
+        if (drawable == null) {
+            runCatching { api.mediaBytes(key) }.onSuccess { bytes ->
+                val decoded = ImageDecoder.decodeDrawable(
+                    ImageDecoder.createSource(java.nio.ByteBuffer.wrap(bytes))
+                )
+                (decoded as? AnimatedImageDrawable)?.start()
+                MediaCaches.putImage(key, decoded)
+                drawable = decoded
+            }
         }
     }
     drawable?.let { gif ->
+        (gif as? AnimatedImageDrawable)?.start()
         AndroidView(
             factory = { ctx ->
                 ImageView(ctx).apply {
@@ -1426,19 +1426,25 @@ private fun GifBubble(api: ApiClient, key: String) {
 
 @Composable
 private fun MessageImage(api: ApiClient, key: String) {
-    var drawable by remember(key) { mutableStateOf<Drawable?>(null) }
+    var drawable by remember(key) { mutableStateOf(MediaCaches.image(key)) }
     LaunchedEffect(key) {
-        runCatching { api.image(key) }.onSuccess { bytes ->
-            runCatching {
-                val decoded = ImageDecoder.decodeDrawable(
-                    ImageDecoder.createSource(java.nio.ByteBuffer.wrap(bytes))
-                )
-                (decoded as? AnimatedImageDrawable)?.start()
-                decoded
-            }.onSuccess { drawable = it }
+        if (drawable == null) {
+            runCatching { api.image(key) }.onSuccess { bytes ->
+                runCatching {
+                    val decoded = ImageDecoder.decodeDrawable(
+                        ImageDecoder.createSource(java.nio.ByteBuffer.wrap(bytes))
+                    )
+                    (decoded as? AnimatedImageDrawable)?.start()
+                    decoded
+                }.onSuccess {
+                    MediaCaches.putImage(key, it)
+                    drawable = it
+                }
+            }
         }
     }
     drawable?.let { image ->
+        (image as? AnimatedImageDrawable)?.start()
         AndroidView(
             factory = { ctx ->
                 ImageView(ctx).apply {

@@ -93,7 +93,14 @@
 - GIF/动态 WebP 用 `AnimatedImageDrawable` 播放；
 - 静态图片仍走同一 ImageView，保持 220dp 对齐。
 
-## 11. 输入区
+## 12. 滚动缓存
+
+- 图片/GIF 解码结果进入 `LruCache`，划走再划回不重新下载；
+- B站/网页预览元数据缓存 32 条，避免反复请求；
+- 视频 ExoPlayer 按 key 复用，划走只暂停不释放，划回来不重新 prepare；
+- 退出重配对时可调用 `MediaCaches.clear()` 清空。
+
+## 13. 输入区
 
 - 底栏白底 + 阴影；
 - 图片/文件/语音按钮单独一行；
