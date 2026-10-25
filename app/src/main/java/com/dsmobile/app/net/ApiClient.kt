@@ -32,6 +32,9 @@ data class BiliPreview(
     val bvid: String = "",
     val cid: Long = 0,
     val playUrl: String = "",
+    val storyboardUrl: String = "",
+    val storyboardCols: Int = 0,
+    val storyboardRows: Int = 0,
 )
 
 data class WebPreview(
@@ -54,6 +57,7 @@ class ApiClient(
     private val baseUrl: String,
     private val token: String? = null,
     private val biliSessdata: String = "",
+    private val biliCookie: String = "",
 ) {
     private val jsonType = "application/json; charset=utf-8".toMediaType()
     private val client = OkHttpClient.Builder()
@@ -263,7 +267,10 @@ class ApiClient(
                 "Referer" to "https://www.bilibili.com/",
                 "Accept" to "application/json",
             )
-            if (biliSessdata.isNotBlank()) headers["Cookie"] = "SESSDATA=$biliSessdata"
+            val cookie = biliCookie.ifBlank {
+                if (biliSessdata.isNotBlank()) "SESSDATA=$biliSessdata" else ""
+            }
+            if (cookie.isNotBlank()) headers["Cookie"] = cookie
             var finalUrl = url
             if (url.contains("b23.tv")) {
                 val redirect = Request.Builder()
@@ -296,6 +303,9 @@ class ApiClient(
                 var subtitle = ""
                 var subtitleCount = 0
                 var playUrl = ""
+                var storyboardUrl = ""
+                var storyboardCols = 0
+                var storyboardRows = 0
                 if (cid > 0) {
                     runCatching {
                         val u = "https://api.bilibili.com/x/player/playurl" +
@@ -310,6 +320,20 @@ class ApiClient(
                                 ?.optJSONObject(0)
                                 ?.optString("url")
                                 .orEmpty()
+                        }
+                    }
+                    runCatching {
+                        val u = "https://api.bilibili.com/x/player/videoshot" +
+                            "?bvid=$bvid&cid=$cid&index=1"
+                        val shotReq = Request.Builder().url(u)
+                            .apply { headers.forEach { (k, v) -> header(k, v) } }
+                            .get().build()
+                        execute(shotReq).use { sr ->
+                            val data = JSONObject(sr.body?.string().orEmpty()).optJSONObject("data")
+                            storyboardUrl = data?.optJSONArray("image")?.optString(0).orEmpty()
+                                .let { if (it.startsWith("//")) "https:$it" else it }
+                            storyboardCols = data?.optInt("img_x_len") ?: 0
+                            storyboardRows = data?.optInt("img_y_len") ?: 0
                         }
                     }
                 }
@@ -404,6 +428,9 @@ class ApiClient(
                     bvid = bvid,
                     cid = cid,
                     playUrl = playUrl,
+                    storyboardUrl = storyboardUrl,
+                    storyboardCols = storyboardCols,
+                    storyboardRows = storyboardRows,
                 )
             }
         } catch (_: Exception) {

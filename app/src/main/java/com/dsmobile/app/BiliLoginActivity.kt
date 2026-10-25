@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -55,6 +56,7 @@ class BiliLoginActivity : ComponentActivity() {
                     return
                 }
                 store.biliSessdata = sess
+                store.biliCookie = cookie
                 setResult(RESULT_OK)
                 finish()
             }
@@ -63,7 +65,12 @@ class BiliLoginActivity : ComponentActivity() {
                 if (webView?.canGoBack() == true) webView?.goBack() else finish()
             }
 
-            Column(modifier = Modifier.fillMaxSize().padding(10.dp)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .padding(10.dp),
+            ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -76,7 +83,7 @@ class BiliLoginActivity : ComponentActivity() {
                 }
                 Text(status, style = MaterialTheme.typography.bodySmall)
                 AndroidView(
-                    modifier = Modifier.fillMaxWidth().fillMaxSize(),
+                    modifier = Modifier.fillMaxWidth().weight(1f),
                     factory = { context ->
                         WebView(context).apply {
                             webView = this

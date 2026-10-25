@@ -1,9 +1,11 @@
 package com.dsmobile.app
 
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Rect
 import android.media.MediaMetadataRetriever
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
@@ -25,10 +27,22 @@ object BiliFrames {
 
     suspend fun load(
         cacheKey: String,
+        storyboardUrl: String,
+        storyboardCols: Int,
+        storyboardRows: Int,
         playUrl: String,
         cookie: String,
     ): Bitmap? = withContext(Dispatchers.IO) {
         MediaCaches.biliFrame(cacheKey)?.let { return@withContext it }
+        if (storyboardUrl.isNotBlank() && storyboardCols > 0 && storyboardRows > 0) {
+            downloadBytes(storyboardUrl, cookie)?.let { bytes ->
+                extractStoryboard(bytes, storyboardCols, storyboardRows)?.let {
+                    MediaCaches.putBiliFrame(cacheKey, it)
+                    Log.i("BiliFrames", "storyboard ok ${it.width}x${it.height}")
+                    return@withContext it
+                }
+            }
+        }
         if (playUrl.isBlank()) return@withContext null
         Log.i("BiliFrames", "start ${cacheKey.take(40)} url=${playUrl.take(60)} cookie=${cookie.isNotBlank()}")
         val tmp = File.createTempFile("bili-frame-", ".mp4")
@@ -37,7 +51,7 @@ object BiliFrames {
                 .url(playUrl)
                 .header("User-Agent", UA)
                 .header("Referer", "https://www.bilibili.com/")
-                .apply { if (cookie.isNotBlank()) header("Cookie", "SESSDATA=$cookie") }
+                .apply { if (cookie.isNotBlank()) header("Cookie", cookie) }
                 .get()
                 .build()
             client.newCall(request).execute().use { response ->
@@ -70,6 +84,57 @@ object BiliFrames {
             null
         } finally {
             tmp.delete()
+        }
+    }
+
+    private fun extractStoryboard(bytes: ByteArray, cols: Int, rows: Int): Bitmap? {
+        var options = BitmapFactory.Options().apply { inSampleSize = 2 }
+        var source = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+        if (source == null) {
+            options = BitmapFactory.Options().apply { inSampleSize = 4 }
+            source = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+        }
+        if (source == null) return null
+        val cellW = source.width / cols
+        val cellH = source.height / rows
+        if (cellW <= 0 || cellH <= 0) {
+            source.recycle()
+            return null
+        }
+        val outW = 720
+        val outH = 405
+        val sheet = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(sheet)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        for (gy in 0 until 3) {
+            for (gx in 0 until 3) {
+                val col = gx * (cols - 1) / 2
+                val row = gy * (rows - 1) / 2
+                val src = Rect(col * cellW, row * cellH, (col + 1) * cellW, (row + 1) * cellH)
+                val dst = Rect(gx * 240, gy * 135, (gx + 1) * 240, (gy + 1) * 135)
+                canvas.drawBitmap(source, src, dst, paint)
+            }
+        }
+        source.recycle()
+        return sheet
+    }
+
+    private fun downloadBytes(url: String, cookie: String): ByteArray? {
+        return try {
+            val request = Request.Builder()
+                .url(url)
+                .header("User-Agent", UA)
+                .header("Referer", "https://www.bilibili.com/")
+                .apply { if (cookie.isNotBlank()) header("Cookie", cookie) }
+                .get()
+                .build()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return null
+                val bytes = response.body?.bytes() ?: return null
+                if (bytes.size > 4 * 1024 * 1024) null else bytes
+            }
+        } catch (_: Exception) {
+            null
         }
     }
 

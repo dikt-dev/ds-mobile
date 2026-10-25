@@ -45,12 +45,15 @@
 - 点击用系统浏览器打开；
 - App 内分享链接时，会把标题/UP/时长/摘要用隐藏的 `[BILI_META]` 块一起发给 AI；
 - 设置页支持「在 App 内登录 B 站」：WebView 登录后自动保存 SESSDATA；
-- 登录后手机直连 B 站接口，取官方 AI 总结、大纲和字幕。
+- 登录后手机直连 B 站接口，取官方 AI 总结、大纲和字幕；
+- 手机端拉 B 站 storyboard 缩略图，拼成 3×3 抽帧网格显示在卡片里；
+- 抽帧结果缓存，划走再划回不重下。
 
 截图：
 
 - `screenshot-chat-bilibili.png`
 - `screenshot-bili-login.png`
+- `screenshot-bili-frames.png`
 
 ## 6. 视频 / GIF
 

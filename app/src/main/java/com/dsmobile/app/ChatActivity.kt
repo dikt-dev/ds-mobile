@@ -278,8 +278,8 @@ private fun ChatScreen(
     onLogout: () -> Unit,
 ) {
     val dao = remember { db.messageDao() }
-    val api = remember(settings.baseUrl, token, settings.biliSessdata) {
-        ApiClient(settings.baseUrl, token, settings.biliSessdata)
+    val api = remember(settings.baseUrl, token, settings.biliSessdata, settings.biliCookie) {
+        ApiClient(settings.baseUrl, token, settings.biliSessdata, settings.biliCookie)
     }
     val messages by dao.observe().collectAsState(initial = emptyList())
     val pending by dao.observePending().collectAsState(initial = emptyList())
@@ -556,7 +556,9 @@ private fun ChatScreen(
                 MessageBubble(
                     message = message,
                     api = api,
-                    biliCookie = settings.biliSessdata,
+                    biliCookie = settings.biliCookie.ifBlank {
+                        if (settings.biliSessdata.isBlank()) "" else "SESSDATA=${settings.biliSessdata}"
+                    },
                     onSpeak = { TtsManager.speak(context, settings, it) },
                     onPrefetch = { TtsManager.prefetch(context, settings, it) },
                 )
@@ -969,12 +971,21 @@ private fun BilibiliCard(api: ApiClient, url: String, biliCookie: String) {
             preview?.let { MediaCaches.putBiliPreview(url, it) }
         }
     }
-    LaunchedEffect(preview?.playUrl) {
-        val playUrl = preview?.playUrl.orEmpty()
-        if (frames == null && playUrl.isNotBlank()) {
-            framesLoading = true
-            frames = BiliFrames.load(url, playUrl, biliCookie)
-            framesLoading = false
+    LaunchedEffect(preview?.storyboardUrl, preview?.playUrl) {
+        if (frames == null) {
+            val p = preview
+            if (p != null && (p.storyboardUrl.isNotBlank() || p.playUrl.isNotBlank())) {
+                framesLoading = true
+                frames = BiliFrames.load(
+                    cacheKey = url,
+                    storyboardUrl = p.storyboardUrl,
+                    storyboardCols = p.storyboardCols,
+                    storyboardRows = p.storyboardRows,
+                    playUrl = p.playUrl,
+                    cookie = biliCookie,
+                )
+                framesLoading = false
+            }
         }
     }
     val displayUrl = url

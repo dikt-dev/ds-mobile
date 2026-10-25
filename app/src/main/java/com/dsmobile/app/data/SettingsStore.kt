@@ -76,6 +76,10 @@ class SettingsStore(context: Context) {
         get() = prefs.getString("bili_sessdata", "") ?: ""
         set(value) = prefs.edit().putString("bili_sessdata", value.trim()).apply()
 
+    var biliCookie: String
+        get() = prefs.getString("bili_cookie", "") ?: ""
+        set(value) = prefs.edit().putString("bili_cookie", value.trim()).apply()
+
     fun clear() {
         prefs.edit().clear().apply()
     }
