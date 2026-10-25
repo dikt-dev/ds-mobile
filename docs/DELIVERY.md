@@ -10,7 +10,7 @@
 dist/DS-Mobile-0.1.0.apk
 ```
 
-- 大小：约 41.6 MB
+- 大小：约 84.5 MB
 - 签名：debug 签名（私人自用，不上架）
 - 安装：
 
@@ -21,7 +21,7 @@ adb install -r dist/DS-Mobile-0.1.0.apk
 - SHA-256：
 
 ```text
-A23FC4CFD1BDBB5C9AAA00FF861F9D2953E72E5F8B0EB23ED26D438FAFAB4796
+F32320CCFE5139E0F74295A966B0F7B0F9436E2ABC0A708AB577A0BD5E51BEB2
 ```
 
 ## 已具备
@@ -30,7 +30,7 @@ A23FC4CFD1BDBB5C9AAA00FF861F9D2953E72E5F8B0EB23ED26D438FAFAB4796
 - 图片、视频、GIF 发送与回放；
 - 语音消息气泡、TTS、转文字；“语音”按钮支持 Azure 录音转文字；
 - B 站卡片、官方总结/字幕、3×3 抽帧 + 2 关键帧发给 AI；
-- PDF/TXT/DOCX/XLSX/PPTX/ZIP/7z 解析与文件卡片；
+- PDF/TXT/DOCX/XLSX/PPTX/ZIP/7z/RAR4、扫描 PDF OCR；
 - 前台服务、通知、开机自启；
 - SSH/SFTP 调试口（密码或 RSA 公钥 + 30 分钟自动关闭）；
 - 本地媒体缓存（1GB / 1000 文件）；
@@ -41,7 +41,7 @@ A23FC4CFD1BDBB5C9AAA00FF861F9D2953E72E5F8B0EB23ED26D438FAFAB4796
 - Azure STT 已用内置中文 WAV 和手机麦克风路径在 K60 验证；
 - SSH 公钥登录已支持 RSA；Ed25519 仍不兼容；
 - RAR4 已验证 244 字符（含 txt/DOCX）；RAR5 暂不支持；
-- 扫描 PDF OCR 未做；
+- 扫描 PDF OCR 已验证（ML Kit 中文，K60 实测 42 字符）；
 - QQ/Termux 尚未正式退役；
 - 8 小时稳定性测试此前按用户要求暂缓。
 
