@@ -337,9 +337,15 @@ private fun ChatScreen(
     val listState = rememberLazyListState()
 
     suspend fun syncEvents() {
-        val after = dao.maxId()
-        val page = api.events(after, 100)
-        if (page.messages.isNotEmpty()) dao.insertAll(page.messages)
+        var after = dao.maxId()
+        while (true) {
+            val page = api.events(after, 100)
+            if (page.messages.isEmpty()) break
+            dao.insertAll(page.messages)
+            val next = page.messages.last().id
+            if (!page.hasMore || next <= after) break
+            after = next
+        }
     }
 
     suspend fun syncLatest() {
@@ -633,7 +639,8 @@ private fun ChatScreen(
 
     LaunchedEffect(Unit) {
         try {
-            syncLatest()
+            // 首次启动取最新一页；已有本地记录则从本地最大 id 补齐离线期间的分页。
+            if (dao.maxId() == 0L) syncLatest() else syncEvents()
         } catch (e: Exception) {
             status = "同步失败：${e.message}"
         }

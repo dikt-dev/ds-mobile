@@ -213,19 +213,26 @@ class KeepAliveService : Service() {
                 continue
             }
             try {
-                var last = settings.lastEventId
-                val page = ApiClient(settings.baseUrl, token).events(last, 20)
-                for (message in page.messages) {
-                    if (message.id > last) {
-                        if (message.role == "assistant" && !appVisible &&
-                            message.id !in notifiedMessageIds
-                        ) {
-                            notifyMessage(message)
-                            notifiedMessageIds.add(message.id)
-                            if (notifiedMessageIds.size > 800) notifiedMessageIds.clear()
+                var after = settings.lastEventId
+                var last = after
+                while (true) {
+                    val page = ApiClient(settings.baseUrl, token).events(after, 100)
+                    for (message in page.messages) {
+                        if (message.id > last) {
+                            if (message.role == "assistant" && !appVisible &&
+                                message.id !in notifiedMessageIds
+                            ) {
+                                notifyMessage(message)
+                                notifiedMessageIds.add(message.id)
+                                if (notifiedMessageIds.size > 800) notifiedMessageIds.clear()
+                            }
+                            last = message.id
                         }
-                        last = message.id
                     }
+                    if (!page.hasMore || page.messages.isEmpty()) break
+                    val next = page.messages.last().id
+                    if (next <= after) break
+                    after = next
                 }
                 if (last != settings.lastEventId) settings.lastEventId = last
             } catch (e: Exception) {
