@@ -86,6 +86,14 @@ class DebugSshService : Service() {
         ip = localIp()
         status = "正在启动…"
         scope.launch { startServer() }
+        // 调试口默认 30 分钟后自动关闭，避免长期暴露在局域网。
+        scope.launch {
+            kotlinx.coroutines.delay(30L * 60L * 1000L)
+            if (running) {
+                status = "已自动关闭（30 分钟）"
+                stopSelf()
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
