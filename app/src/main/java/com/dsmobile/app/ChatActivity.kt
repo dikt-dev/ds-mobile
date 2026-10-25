@@ -396,6 +396,15 @@ private fun ChatScreen(
         if (granted) startVoice() else status = "需要麦克风权限"
     }
 
+    val biliLoginLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            MediaCaches.clearBili()
+            (context as? Activity)?.recreate()
+        }
+    }
+
     val imagePicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia()
     ) { uri ->
@@ -675,6 +684,10 @@ private fun ChatScreen(
         if (showSettings) {
             SettingsDialog(
                 settings = settings,
+                onBiliLogin = {
+                    showSettings = false
+                    biliLoginLauncher.launch(Intent(context, BiliLoginActivity::class.java))
+                },
                 onDismiss = { showSettings = false },
                 onLogout = {
                     showSettings = false
@@ -688,6 +701,7 @@ private fun ChatScreen(
 @Composable
 private fun SettingsDialog(
     settings: SettingsStore,
+    onBiliLogin: () -> Unit,
     onDismiss: () -> Unit,
     onLogout: () -> Unit,
 ) {
@@ -758,6 +772,7 @@ private fun SettingsDialog(
                     visualTransformation = PasswordVisualTransformation(),
                     modifier = Modifier.fillMaxWidth(),
                 )
+                TextButton(onClick = onBiliLogin) { Text("在 App 内登录 B 站") }
             }
         },
         confirmButton = {

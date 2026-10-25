@@ -53,4 +53,8 @@ object MediaCaches {
         players.values.forEach { it.release() }
         players.clear()
     }
+
+    fun clearBili() {
+        bili.evictAll()
+    }
 }

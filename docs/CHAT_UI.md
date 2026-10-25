@@ -44,11 +44,13 @@
 - 渲染成哔哩哔哩卡片：B 站图标、标题、UP 主、时长、简介摘要、打开按钮；
 - 点击用系统浏览器打开；
 - App 内分享链接时，会把标题/UP/时长/摘要用隐藏的 `[BILI_META]` 块一起发给 AI；
-- 超过 600 字的消息默认折叠 8 行，可展开全文。
+- 设置页支持「在 App 内登录 B 站」：WebView 登录后自动保存 SESSDATA；
+- 登录后手机直连 B 站接口，取官方 AI 总结、大纲和字幕。
 
 截图：
 
 - `screenshot-chat-bilibili.png`
+- `screenshot-bili-login.png`
 
 ## 6. 视频 / GIF
 
