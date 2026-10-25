@@ -67,6 +67,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -96,6 +98,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
 import androidx.media3.datasource.DefaultHttpDataSource
@@ -115,6 +118,23 @@ import java.io.File
 import com.dsmobile.app.parse.DocumentParser
 import com.dsmobile.app.speech.TtsManager
 import com.dsmobile.app.speech.VoiceRecorder
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.Keyboard
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Photo
+import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -445,6 +465,7 @@ private fun ChatScreen(
 
     val recorder = remember { VoiceRecorder() }
     var recording by remember { mutableStateOf(false) }
+    var voiceMode by remember { mutableStateOf(false) }
     DisposableEffect(Unit) {
         onDispose { recorder.cancel() }
     }
@@ -487,6 +508,30 @@ private fun ChatScreen(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) startAzureRecording() else status = "需要麦克风权限"
+    }
+
+    fun beginVoiceHold() {
+        if (recording || busy) return
+        val granted = ContextCompat.checkSelfPermission(
+            context, Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!granted) {
+            voicePermission.launch(Manifest.permission.RECORD_AUDIO)
+            return
+        }
+        startAzureRecording()
+    }
+
+    fun endVoiceHold() {
+        if (recording) stopAzureRecording()
+    }
+
+    fun cancelVoiceHold() {
+        if (recording) {
+            recorder.cancel()
+            recording = false
+            status = ""
+        }
     }
 
     val biliLoginLauncher = rememberLauncherForActivityResult(
@@ -644,32 +689,65 @@ private fun ChatScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFFF3F4F6))
+            .background(
+                Brush.verticalGradient(
+                    listOf(Color(0xFFF8F6FF), Color(0xFFF2F3F7)),
+                ),
+            )
             .statusBarsPadding()
             .imePadding(),
     ) {
-        Surface(color = Color.White, shadowElevation = 2.dp) {
+        Surface(
+            color = Color.White,
+            shadowElevation = 0.dp,
+            border = BorderStroke(1.dp, Color(0x0F000000)),
+        ) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(CircleShape)
+                        .background(
+                            Brush.linearGradient(
+                                listOf(Color(0xFF7C5CFF), Color(0xFFB38CFF)),
+                            ),
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text("鱼", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                }
+                Spacer(Modifier.width(11.dp))
                 Column {
                     Text(
-                        "DS-Mobile",
-                        style = MaterialTheme.typography.titleLarge,
+                        "大肥鱼",
+                        style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
+                        color = Color(0xFF20202A),
                     )
-                    Text(
-                        "大肥鱼 · App",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color(0xFF8A8A8A),
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF34C759)),
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            "DS-Mobile · 在线",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFF8A8794),
+                        )
+                    }
                 }
                 Spacer(Modifier.weight(1f))
-                TextButton(
-                    onClick = { context.startActivity(Intent(context, MainActivity::class.java)) },
-                ) { Text("调试") }
-                TextButton(onClick = { showSettings = true }) { Text("设置") }
+                HeaderAction(Icons.Filled.BugReport) {
+                    context.startActivity(Intent(context, MainActivity::class.java))
+                }
+                Spacer(Modifier.width(6.dp))
+                HeaderAction(Icons.Filled.Settings) { showSettings = true }
             }
         }
         LazyColumn(
@@ -749,93 +827,118 @@ private fun ChatScreen(
                 textAlign = TextAlign.Center,
             )
         }
-        Surface(color = Color.White, shadowElevation = 6.dp) {
-            Column {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 5.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-            OutlinedButton(
-                onClick = {
-                    imagePicker.launch(
-                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+        Surface(
+            color = Color.White,
+            shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp),
+            shadowElevation = 10.dp,
+        ) {
+            Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                if (voiceMode) {
+                    VoiceComposer(
+                        recording = recording,
+                        enabled = !busy,
+                        onHoldStart = { beginVoiceHold() },
+                        onHoldEnd = { endVoiceHold() },
+                        onHoldCancel = { cancelVoiceHold() },
+                        onSwitchKeyboard = {
+                            if (recording) endVoiceHold()
+                            voiceMode = false
+                        },
                     )
-                },
-                enabled = !busy,
-            ) {
-                Text("图片")
-            }
-            Spacer(Modifier.width(6.dp))
-            OutlinedButton(
-                onClick = {
-                    val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                        addCategory(Intent.CATEGORY_OPENABLE)
-                        type = "*/*"
-                        putExtra(
-                            DocumentsContract.EXTRA_INITIAL_URI,
-                            Uri.parse(
-                                "content://com.android.externalstorage.documents/document/primary%3ADownload"
-                            ),
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        ComposerAction(Icons.Filled.Photo, "图片", !busy) {
+                            imagePicker.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                            )
+                        }
+                        Spacer(Modifier.width(4.dp))
+                        ComposerAction(Icons.Filled.AttachFile, "文件", !busy) {
+                            val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                                addCategory(Intent.CATEGORY_OPENABLE)
+                                type = "*/*"
+                                putExtra(
+                                    DocumentsContract.EXTRA_INITIAL_URI,
+                                    Uri.parse(
+                                        "content://com.android.externalstorage.documents/document/primary%3ADownload"
+                                    ),
+                                )
+                            }
+                            filePicker.launch(intent)
+                        }
+                        Spacer(Modifier.width(4.dp))
+                        ComposerAction(Icons.Filled.Videocam, "视频", !busy) {
+                            videoPicker.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)
+                            )
+                        }
+                        Spacer(Modifier.width(4.dp))
+                        ComposerAction(Icons.Filled.Mic, "语音", !busy) {
+                            voiceMode = true
+                        }
+                        Spacer(Modifier.weight(1f))
+                        Text(
+                            "文字 · 语音 · 文件",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFFAAA6B5),
                         )
                     }
-                    filePicker.launch(intent)
-                },
-                enabled = !busy,
-            ) {
-                Text("文件")
-            }
-            Spacer(Modifier.width(6.dp))
-            OutlinedButton(
-                onClick = {
-                    videoPicker.launch(
-                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)
-                    )
-                },
-                enabled = !busy,
-            ) {
-                Text("视频")
-            }
-            Spacer(Modifier.width(6.dp))
-            OutlinedButton(
-                onClick = {
-                    if (recording) {
-                        stopAzureRecording()
-                    } else {
-                        val granted = ContextCompat.checkSelfPermission(
-                            context, Manifest.permission.RECORD_AUDIO
-                        ) == PackageManager.PERMISSION_GRANTED
-                        if (granted) startAzureRecording()
-                        else voicePermission.launch(Manifest.permission.RECORD_AUDIO)
+                    Spacer(Modifier.height(7.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.Bottom,
+                    ) {
+                        TextField(
+                            value = input,
+                            onValueChange = { input = it },
+                            modifier = Modifier.weight(1f),
+                            placeholder = { Text("说点什么…") },
+                            maxLines = 4,
+                            shape = RoundedCornerShape(22.dp),
+                            colors = TextFieldDefaults.colors(
+                                focusedContainerColor = Color(0xFFF7F5FB),
+                                unfocusedContainerColor = Color(0xFFF7F5FB),
+                                disabledContainerColor = Color(0xFFF7F5FB),
+                                focusedIndicatorColor = Color.Transparent,
+                                unfocusedIndicatorColor = Color.Transparent,
+                                disabledIndicatorColor = Color.Transparent,
+                            ),
+                        )
+                        Spacer(Modifier.width(7.dp))
+                        Box(
+                            modifier = Modifier
+                                .size(46.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    if (!busy && input.isNotBlank()) {
+                                        Brush.linearGradient(
+                                            listOf(Color(0xFF7C5CFF), Color(0xFFA78BFA)),
+                                        )
+                                    } else {
+                                        Brush.linearGradient(
+                                            listOf(Color(0xFFE8E5EF), Color(0xFFE8E5EF)),
+                                        )
+                                    },
+                                )
+                                .clickable(enabled = !busy && input.isNotBlank()) {
+                                    val text = input.trim()
+                                    input = ""
+                                    scope.launch { sendText(text) }
+                                },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                Icons.Filled.Send,
+                                contentDescription = "发送",
+                                tint = if (!busy && input.isNotBlank()) Color.White else Color(0xFFAAA6B5),
+                                modifier = Modifier.size(21.dp),
+                            )
+                        }
                     }
-                },
-                enabled = !busy,
-            ) {
-                Text(if (recording) "停止" else "语音")
-            }
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            OutlinedTextField(
-                value = input,
-                onValueChange = { input = it },
-                modifier = Modifier.weight(1f),
-                placeholder = { Text("说点什么…") },
-                maxLines = 4,
-            )
-            Spacer(Modifier.width(8.dp))
-            Button(
-                enabled = !busy && input.isNotBlank(),
-                onClick = {
-                    val text = input.trim()
-                    input = ""
-                    scope.launch { sendText(text) }
-                },
-            ) {
-                Text(if (busy) "…" else "发送")
-            }
-        }
+                }
             }
         }
         if (showSettings) {
@@ -851,6 +954,104 @@ private fun ChatScreen(
                     onLogout()
                 },
             )
+        }
+    }
+}
+
+@Composable
+private fun HeaderAction(icon: ImageVector, onClick: () -> Unit) {
+    Surface(
+        shape = CircleShape,
+        color = Color(0xFFF5F2FC),
+    ) {
+        IconButton(onClick = onClick, modifier = Modifier.size(38.dp)) {
+            Icon(icon, contentDescription = null, tint = Color(0xFF6C5CE7), modifier = Modifier.size(19.dp))
+        }
+    }
+}
+
+@Composable
+private fun ComposerAction(
+    icon: ImageVector,
+    label: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(
+        shape = CircleShape,
+        color = if (enabled) Color(0xFFF5F2FC) else Color(0xFFF0EEF4),
+        modifier = Modifier.size(38.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clickable(enabled = enabled, onClick = onClick),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                icon,
+                contentDescription = label,
+                tint = if (enabled) Color(0xFF6C5CE7) else Color(0xFFB8B3C4),
+                modifier = Modifier.size(19.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun VoiceComposer(
+    recording: Boolean,
+    enabled: Boolean,
+    onHoldStart: () -> Unit,
+    onHoldEnd: () -> Unit,
+    onHoldCancel: () -> Unit,
+    onSwitchKeyboard: () -> Unit,
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            if (recording) "松开 结束" else "按住 说话",
+            style = MaterialTheme.typography.labelMedium,
+            color = if (recording) Color(0xFF6C5CE7) else Color(0xFF8A8794),
+        )
+        Spacer(Modifier.height(10.dp))
+        Box(
+            modifier = Modifier
+                .size(104.dp)
+                .scale(if (recording) 1.06f else 1f)
+                .clip(CircleShape)
+                .background(
+                    Brush.radialGradient(
+                        listOf(Color(0xFFA78BFA), Color(0xFF6C4CF1)),
+                    ),
+                )
+                .pointerInput(enabled) {
+                    if (enabled) {
+                        detectTapGestures(
+                            onPress = {
+                                onHoldStart()
+                                val released = tryAwaitRelease()
+                                if (released) onHoldEnd() else onHoldCancel()
+                            },
+                        )
+                    }
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                Icons.Filled.Mic,
+                contentDescription = "按住说话",
+                tint = Color.White,
+                modifier = Modifier.size(42.dp),
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        TextButton(onClick = onSwitchKeyboard) {
+            Icon(Icons.Filled.Keyboard, contentDescription = null, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(4.dp))
+            Text("键盘", style = MaterialTheme.typography.labelMedium)
         }
     }
 }
@@ -2050,8 +2251,8 @@ private fun MessageBubble(
                 } else {
                     RoundedCornerShape(topStart = 4.dp, topEnd = 18.dp, bottomEnd = 18.dp, bottomStart = 18.dp)
                 },
-                color = if (isUser) Color(0xFFE8E0FA) else Color.White,
-                border = if (isUser) null else BorderStroke(1.dp, Color(0x14000000)),
+                color = if (isUser) Color(0xFFEDE7FF) else Color.White,
+                border = if (isUser) BorderStroke(1.dp, Color(0x1A6C5CE7)) else BorderStroke(1.dp, Color(0x14000000)),
                 shadowElevation = 0.dp,
             ) {
                 Column(
