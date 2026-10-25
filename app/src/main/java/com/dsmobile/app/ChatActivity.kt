@@ -86,6 +86,7 @@ import com.dsmobile.app.data.PendingMessageEntity
 import com.dsmobile.app.data.SettingsStore
 import com.dsmobile.app.media.MediaUtils
 import com.dsmobile.app.net.ApiClient
+import com.dsmobile.app.net.BiliPreview
 import com.dsmobile.app.parse.DocumentParser
 import com.dsmobile.app.speech.TtsManager
 import kotlinx.coroutines.Dispatchers
@@ -708,8 +709,12 @@ private fun DayDivider(day: String) {
 }
 
 @Composable
-private fun BilibiliCard(url: String) {
+private fun BilibiliCard(api: ApiClient, url: String) {
     val uriHandler = LocalUriHandler.current
+    var preview by remember(url) { mutableStateOf<BiliPreview?>(null) }
+    LaunchedEffect(url) {
+        preview = runCatching { api.biliPreview(url) }.getOrNull()
+    }
     val displayUrl = url
         .removePrefix("https://")
         .removePrefix("http://")
@@ -743,14 +748,20 @@ private fun BilibiliCard(url: String) {
             Spacer(Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    "哔哩哔哩",
-                    style = MaterialTheme.typography.labelMedium,
+                    preview?.title?.takeIf { it.isNotBlank() } ?: "哔哩哔哩视频",
+                    style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Medium,
                     color = Color(0xFF222222),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    displayUrl,
-                    style = MaterialTheme.typography.bodySmall,
+                    listOfNotNull(
+                        preview?.owner?.takeIf { it.isNotBlank() },
+                        preview?.duration?.takeIf { it > 0 }?.let { formatDuration(it) },
+                        displayUrl,
+                    ).joinToString(" · "),
+                    style = MaterialTheme.typography.labelSmall,
                     color = Color(0xFF888888),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -1022,7 +1033,7 @@ private fun MessageBubble(
                         MessageImage(api, key)
                     }
                     biliUrls.forEach { url ->
-                        BilibiliCard(url)
+                        BilibiliCard(api, url)
                     }
                 }
             }

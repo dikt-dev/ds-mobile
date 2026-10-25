@@ -13,6 +13,12 @@ import java.util.concurrent.TimeUnit
 
 data class EventPage(val messages: List<MessageEntity>, val latestId: Long, val hasMore: Boolean)
 
+data class BiliPreview(
+    val title: String,
+    val owner: String,
+    val duration: Int,
+)
+
 class ApiException(message: String) : Exception(message)
 
 class ApiClient(
@@ -200,6 +206,24 @@ class ApiClient(
                 ?.optString("content")
                 ?.takeIf { it.isNotBlank() }
                 ?: throw ApiException("回复为空")
+        }
+    }
+
+    suspend fun biliPreview(url: String): BiliPreview? = withContext(Dispatchers.IO) {
+        val encoded = java.net.URLEncoder.encode(url, "UTF-8")
+        val request = Request.Builder()
+            .url("$baseUrl/api/app/link-preview?url=$encoded")
+            .header("Authorization", "Bearer ${requireToken()}")
+            .get()
+            .build()
+        execute(request).use { response ->
+            if (!response.isSuccessful) return@withContext null
+            val root = JSONObject(response.body?.string().orEmpty())
+            BiliPreview(
+                title = root.optString("title"),
+                owner = root.optString("owner"),
+                duration = root.optInt("duration"),
+            )
         }
     }
 
