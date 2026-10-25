@@ -21,6 +21,7 @@ import android.speech.RecognizerIntent
 import android.util.Base64
 import android.widget.ImageView
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -43,9 +44,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -83,6 +82,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -95,7 +95,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -731,16 +731,22 @@ private fun ChatScreen(
 
     val isTyping = busy && streamingText.isEmpty() && isTypingStatus(status)
     val itemCount = messages.size + pending.size + if (streamingText.isNotEmpty() || isTyping) 1 else 0
-    val imeHeight = WindowInsets.ime.getBottom(LocalDensity.current)
+    val focusManager = LocalFocusManager.current
+    var inputFocused by remember { mutableStateOf(false) }
 
-    // 键盘弹出时聊天区域变矮，滚动位置不会自动跟着，主动重新贴底。
-    LaunchedEffect(imeHeight, itemCount) {
-        if (imeHeight > 0 && itemCount > 0 && stickToBottom) {
-            repeat(3) {
-                delay(60)
-                listState.scrollToItem(itemCount)
-                withFrameNanos { }
-            }
+    // 返回键先收键盘/取消焦点，底部操作栏随之恢复。
+    BackHandler(enabled = inputFocused) {
+        inputFocused = false
+        focusManager.clearFocus()
+    }
+
+    // 用焦点而不是每一帧 IME 高度触发；键盘动画中反复重组/滚动是卡顿主因。
+    LaunchedEffect(inputFocused, itemCount) {
+        if (inputFocused && itemCount > 0) {
+            delay(320)
+            // 用户开始输入时回到最新；键盘弹出后若列表被压缩，也要重新贴底。
+            listState.scrollToItem(itemCount)
+            stickToBottom = true
         }
     }
     LaunchedEffect(listState) {
@@ -968,6 +974,10 @@ private fun ChatScreen(
                             onValueChange = { input = it },
                             modifier = Modifier
                                 .weight(1f)
+                                .onFocusChanged {
+                                    inputFocused = it.isFocused
+                                    if (it.isFocused) stickToBottom = true
+                                }
                                 .shadow(
                                     5.dp,
                                     RoundedCornerShape(26.dp),
@@ -1028,37 +1038,39 @@ private fun ChatScreen(
                             )
                         }
                     }
-                    Spacer(Modifier.height(7.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        ComposerAction(Icons.Filled.Photo, "图片", !busy) {
-                            imagePicker.launch(
-                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                            )
-                        }
-                        ComposerAction(Icons.Filled.AttachFile, "文件", !busy) {
-                            val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                                addCategory(Intent.CATEGORY_OPENABLE)
-                                type = "*/*"
-                                putExtra(
-                                    DocumentsContract.EXTRA_INITIAL_URI,
-                                    Uri.parse(
-                                        "content://com.android.externalstorage.documents/document/primary%3ADownload"
-                                    ),
+                    if (!inputFocused) {
+                        Spacer(Modifier.height(7.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceEvenly,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            ComposerAction(Icons.Filled.Photo, "图片", !busy) {
+                                imagePicker.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                                 )
                             }
-                            filePicker.launch(intent)
-                        }
-                        ComposerAction(Icons.Filled.Videocam, "视频", !busy) {
-                            videoPicker.launch(
-                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)
-                            )
-                        }
-                        ComposerAction(Icons.Filled.Mic, "语音", !busy) {
-                            voiceMode = true
+                            ComposerAction(Icons.Filled.AttachFile, "文件", !busy) {
+                                val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                                    addCategory(Intent.CATEGORY_OPENABLE)
+                                    type = "*/*"
+                                    putExtra(
+                                        DocumentsContract.EXTRA_INITIAL_URI,
+                                        Uri.parse(
+                                            "content://com.android.externalstorage.documents/document/primary%3ADownload"
+                                        ),
+                                    )
+                                }
+                                filePicker.launch(intent)
+                            }
+                            ComposerAction(Icons.Filled.Videocam, "视频", !busy) {
+                                videoPicker.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)
+                                )
+                            }
+                            ComposerAction(Icons.Filled.Mic, "语音", !busy) {
+                                voiceMode = true
+                            }
                         }
                     }
                 }
