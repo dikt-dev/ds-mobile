@@ -1,7 +1,7 @@
 # DS-Mobile 阶段 5 验收记录（文件解析，进行中）
 
 > 日期：2026-10-25  
-> 状态：**PDF/TXT 端到端；DOCX/XLSX/PPTX/ZIP/7z 自测通过；RAR 与文件选择器 Office 端到端待补**
+> 状态：**PDF/TXT 端到端；DOCX/XLSX/PPTX/ZIP/7z/RAR 自测通过；文件选择器 Office 端到端待补**
 
 ---
 
@@ -21,7 +21,7 @@
 | PPTX 解析 | ✅ 自测 80 字符（两页正文） |
 | ZIP 解析 | ✅ 自测 153 字符（含 txt/docx） |
 | 7z 解析 | ✅ 自测 153 字符（含 docx/txt） |
-| RAR 解析 | ✅ 代码接入 junrar；待 RAR 样本验收 |
+| RAR 解析 | ✅ RAR4 样本 244 字符（含 docx/txt）；RAR5 暂不支持 |
 | K60 实测 | ✅ 选择 50 页 spike.pdf → 本地解析 → AI 回复 |
 
 截图：
@@ -53,7 +53,7 @@ zip-test.zip: 153 字符
 ## 3. 待验收/下一步
 
 - 文件选择器直接选 DOCX/XLSX/PPTX/ZIP/7z 的端到端测试；
-- RAR 样本验收；
+- RAR5 支持（junrar 7.5.5 报 `UnsupportedRarV5Exception`）；
 - 扫描 PDF OCR；
 - 超长文本分段/摘要；
 - 文件发送 outbox。

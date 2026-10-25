@@ -65,10 +65,18 @@ object ParseSpike {
                     text.replace('\n', ' ').take(120)
             }
 
+            val rar = runCatching {
+                val data = context.assets.open("test/rar-test.rar").readBytes()
+                val text = ArchiveParser.parseRar(data)
+                "RAR: ${text.length} 字符 / ${data.size / 1024}KB\n" +
+                    text.replace('\n', ' ').take(160)
+            }.getOrElse { "RAR: 失败 ${it.javaClass.simpleName}: ${it.message}" }
+
             "PDF: 50 页, $chars 字符, 生成 ${pdfRead - pdfCreate}ms, 解析 ${pdfEnd - pdfRead}ms\n" +
                 "ZIP: $entries 条目, ${bytes / 1024}KB, 生成 ${zipRead - zipCreate}ms, 解析 ${zipEnd - zipRead}ms\n" +
                 "文件: ${pdf.length() / 1024}KB / ${zip.length() / 1024}KB\n" +
-                "Office:\n$office"
+                "Office:\n$office\n" +
+                rar
         } catch (e: Throwable) {
             "解析失败: ${e.javaClass.simpleName}: ${e.message}"
         }
