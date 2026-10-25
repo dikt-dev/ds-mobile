@@ -1,9 +1,35 @@
 package com.dsmobile.app.data
 
 import android.content.Context
+import android.content.SharedPreferences
+import android.util.Log
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
 
 class SettingsStore(context: Context) {
-    private val prefs = context.getSharedPreferences("ds_mobile_settings", Context.MODE_PRIVATE)
+    companion object {
+        private const val TAG = "SettingsStore"
+        private const val SECURE_NAME = "ds_mobile_settings_secure"
+        private const val LEGACY_NAME = "ds_mobile_settings"
+    }
+
+    private val prefs: SharedPreferences = try {
+        val masterKey = MasterKey.Builder(context)
+            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+            .build()
+        val secure = EncryptedSharedPreferences.create(
+            context,
+            SECURE_NAME,
+            masterKey,
+            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+        )
+        migrateLegacy(context, secure)
+        secure
+    } catch (e: Exception) {
+        Log.e(TAG, "encrypted prefs unavailable, fallback to plain", e)
+        context.getSharedPreferences(LEGACY_NAME, Context.MODE_PRIVATE)
+    }
 
     var baseUrl: String
         get() = prefs.getString("base_url", "https://fae.us.ci") ?: "https://fae.us.ci"
@@ -18,7 +44,25 @@ class SettingsStore(context: Context) {
             prefs.edit().putString("device_id", it).apply()
         }
 
+    var lastEventId: Long
+        get() = prefs.getLong("last_event_id", 0L)
+        set(value) = prefs.edit().putLong("last_event_id", value).apply()
+
     fun clear() {
         prefs.edit().clear().apply()
+    }
+
+    private fun migrateLegacy(context: Context, secure: SharedPreferences) {
+        if (secure.contains("token")) return
+        val legacy = context.getSharedPreferences(LEGACY_NAME, Context.MODE_PRIVATE)
+        val token = legacy.getString("token", null) ?: return
+        secure.edit()
+            .putString("base_url", legacy.getString("base_url", "https://fae.us.ci"))
+            .putString("token", token)
+            .putString("device_id", legacy.getString("device_id", null))
+            .putLong("last_event_id", legacy.getLong("last_event_id", 0L))
+            .apply()
+        legacy.edit().clear().apply()
+        Log.i(TAG, "migrated legacy token to encrypted prefs")
     }
 }

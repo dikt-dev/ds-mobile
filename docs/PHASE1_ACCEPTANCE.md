@@ -2,7 +2,7 @@
 
 > 日期：2026-10-25  
 > 目标：不经过 QQ，App 内直接与 `ds-memory` Worker 聊天。  
-> 状态：**文本聊天 MVP 已跑通；通知/后台/加密存储待补**
+> 状态：**文本聊天 MVP + 后台通知 + Token 加密存储已跑通；outbox/流式待补**
 
 ---
 
@@ -19,14 +19,16 @@
 | Token 持久化 | ✅ SharedPreferences（阶段 2 改加密） |
 | 聊天页 | ✅ 历史、气泡、发送中状态、5 秒轮询 |
 | 启动页 | ✅ `ChatActivity` 已设为 launcher；调试页收进「调试」按钮 |
-| K60 实测 | ✅ 发送 `App test reply OK`，收到 AI 回复 |
+| 后台通知 | ✅ App 在后台收到助手消息时弹 `DS-Mobile 消息` 通知 |
+| Token 存储 | ✅ EncryptedSharedPreferences（Keystore 主密钥），旧明文自动迁移 |
+| K60 实测 | ✅ 发送 `App test reply OK`，收到 AI 回复；后台通知测试成功 |
 
 截图：
 
 - `screenshot-p1-setup.png`：配对页
-- `screenshot-p1-chat-latest2.png`：聊天页（含 Web/App 消息）
-- `screenshot-p1-chat4.png`：App 发送后收到回复
 - `screenshot-p1-final.png`：默认启动页
+- `screenshot-p1-notification.png`：后台消息通知
+- `screenshot-p1-secure.png`：加密存储迁移后的聊天页
 
 ---
 
@@ -53,12 +55,11 @@ App 配对 → 设备 Token → ChatActivity
 
 ## 3. 当前限制
 
-1. Token 还是 SharedPreferences 明文，阶段 2 改 Keystore/EncryptedSharedPreferences。
-2. 发送不是流式；先拿到完整回复再拉事件。
-3. 没有本地乐观消息和失败重试队列。
-4. 没有新消息通知；前台服务目前只做健康检查。
-5. 历史里超长 Web 消息会截断显示 30 行。
-6. 重启自启仍依赖 HyperOS 自启动白名单。
+1. 发送不是流式；先拿到完整回复再拉事件。
+2. 没有本地乐观消息和失败重试队列。
+3. 历史里超长 Web 消息会截断显示 30 行。
+4. 重启自启仍依赖 HyperOS 自启动白名单。
+5. Token 迁移后旧 `ds_mobile_settings.xml` 只剩空壳，不影响使用。
 
 ---
 

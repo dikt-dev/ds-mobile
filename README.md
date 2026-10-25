@@ -48,6 +48,8 @@ adb shell am start -n com.dsmobile.app/.ChatActivity
 - 配对码换设备 Token（当前配对码临时用 `ASTROBOT_API_KEY`）；
 - 文字聊天、Room 本地库、5 秒增量轮询；
 - 历史显示 Web/QQ/App 全部渠道；
+- 后台助手消息通知（`DS-Mobile 消息` 渠道）；
+- Token 用 EncryptedSharedPreferences 保存，旧明文自动迁移；
 - 实测发送 `App test reply OK` 并收到 AI 回复。
 
 详见 [阶段 1 验收](docs/PHASE1_ACCEPTANCE.md)。

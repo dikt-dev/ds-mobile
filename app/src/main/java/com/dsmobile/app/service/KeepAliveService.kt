@@ -12,8 +12,10 @@ import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
-import com.dsmobile.app.MainActivity
-import com.dsmobile.app.R
+import com.dsmobile.app.ChatActivity
+import com.dsmobile.app.data.MessageEntity
+import com.dsmobile.app.data.SettingsStore
+import com.dsmobile.app.net.ApiClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -39,8 +41,13 @@ class KeepAliveService : Service() {
     companion object {
         private const val TAG = "KeepAliveService"
         private const val CHANNEL_ID = "ds_keepalive"
+        private const val MESSAGE_CHANNEL_ID = "ds_messages"
         private const val NOTIFICATION_ID = 1001
+        private const val MESSAGE_NOTIFICATION_ID = 2001
         private const val HEALTH_URL = "https://fae.us.ci/api/health"
+
+        @Volatile
+        var appVisible: Boolean = false
 
         @Volatile
         var running: Boolean = false
@@ -64,14 +71,21 @@ class KeepAliveService : Service() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var loopJob: Job? = null
+    private var eventJob: Job? = null
+    private lateinit var settings: SettingsStore
 
     override fun onCreate() {
         super.onCreate()
+        settings = SettingsStore(this)
         createNotificationChannel()
         startForegroundCompat(buildNotification("正在启动…"))
         running = true
         lastStatus = "正在启动…"
         loopJob = scope.launch { pollLoop() }
+        eventJob = scope.launch {
+            delay(1_500)
+            eventLoop()
+        }
         Log.i(TAG, "service created")
     }
 
@@ -87,6 +101,7 @@ class KeepAliveService : Service() {
     override fun onDestroy() {
         running = false
         loopJob?.cancel()
+        eventJob?.cancel()
         scope.cancel()
         Log.i(TAG, "service destroyed")
         super.onDestroy()
@@ -107,6 +122,68 @@ class KeepAliveService : Service() {
             Log.d(TAG, "health=$status")
             delay(3_000)
         }
+    }
+
+    /** 增量消息轮询：App 在后台时给新助手消息发通知。 */
+    private suspend fun eventLoop() {
+        // 首次启动先取最新 id 作为基线，避免把历史消息全部弹一遍
+        while (scope.isActive && settings.lastEventId <= 0) {
+            val token = settings.token ?: break
+            try {
+                val page = ApiClient(settings.baseUrl, token).events(0, 1, latest = true)
+                settings.lastEventId = page.latestId
+                Log.i(TAG, "event baseline=${page.latestId}")
+            } catch (e: Exception) {
+                Log.w(TAG, "event baseline failed: ${e.message}")
+                delay(5_000)
+            }
+        }
+
+        while (scope.isActive) {
+            val token = settings.token
+            if (token.isNullOrBlank()) {
+                delay(5_000)
+                continue
+            }
+            try {
+                var last = settings.lastEventId
+                val page = ApiClient(settings.baseUrl, token).events(last, 20)
+                for (message in page.messages) {
+                    if (message.id > last) {
+                        if (message.role == "assistant" && !appVisible) {
+                            notifyMessage(message)
+                        }
+                        last = message.id
+                    }
+                }
+                if (last != settings.lastEventId) settings.lastEventId = last
+            } catch (e: Exception) {
+                Log.w(TAG, "event poll failed: ${e.message}")
+            }
+            delay(5_000)
+        }
+    }
+
+    private fun notifyMessage(message: MessageEntity) {
+        val manager = getSystemService(NotificationManager::class.java)
+        if (!manager.areNotificationsEnabled()) return
+        val text = message.content.replace(Regex("\\s+"), " ").trim().take(160)
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            1,
+            Intent(this, ChatActivity::class.java),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val notification = NotificationCompat.Builder(this, MESSAGE_CHANNEL_ID)
+            .setContentTitle("大肥鱼")
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setSmallIcon(android.R.drawable.stat_notify_chat)
+            .setAutoCancel(true)
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setContentIntent(pendingIntent)
+            .build()
+        manager.notify(MESSAGE_NOTIFICATION_ID, notification)
     }
 
     private fun checkHealth(): String {
@@ -139,13 +216,22 @@ class KeepAliveService : Service() {
             setShowBadge(false)
         }
         manager.createNotificationChannel(channel)
+
+        val messageChannel = NotificationChannel(
+            MESSAGE_CHANNEL_ID,
+            "DS-Mobile 消息",
+            NotificationManager.IMPORTANCE_HIGH,
+        ).apply {
+            description = "新消息提醒"
+        }
+        manager.createNotificationChannel(messageChannel)
     }
 
     private fun buildNotification(text: String): Notification {
         val pendingIntent = PendingIntent.getActivity(
             this,
             0,
-            Intent(this, MainActivity::class.java),
+            Intent(this, ChatActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         return NotificationCompat.Builder(this, CHANNEL_ID)
