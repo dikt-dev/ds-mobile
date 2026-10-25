@@ -2,6 +2,7 @@ package com.dsmobile.app
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.BitmapRegionDecoder
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -13,6 +14,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.io.ByteArrayInputStream
 import java.io.File
 import java.util.concurrent.TimeUnit
 import kotlin.math.max
@@ -25,6 +27,34 @@ object BiliFrames {
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(120, TimeUnit.SECONDS)
         .build()
+
+    suspend fun loadSingleFrame(
+        storyboardUrl: String,
+        cols: Int,
+        rows: Int,
+        cookie: String,
+        cacheDir: File?,
+    ): Bitmap? = withContext(Dispatchers.IO) {
+        if (storyboardUrl.isBlank() || cols <= 0 || rows <= 0) return@withContext null
+        val bytes = downloadBytes(storyboardUrl, cookie, cacheDir) ?: return@withContext null
+        runCatching {
+            val decoder = BitmapRegionDecoder.newInstance(ByteArrayInputStream(bytes), false)
+                ?: return@withContext null
+            try {
+                val cellW = decoder.width / cols
+                val cellH = decoder.height / rows
+                if (cellW <= 0 || cellH <= 0) return@withContext null
+                val col = cols / 2
+                val row = rows / 2
+                decoder.decodeRegion(
+                    Rect(col * cellW, row * cellH, (col + 1) * cellW, (row + 1) * cellH),
+                    BitmapFactory.Options(),
+                )
+            } finally {
+                decoder.recycle()
+            }
+        }.getOrNull()
+    }
 
     suspend fun load(
         cacheKey: String,

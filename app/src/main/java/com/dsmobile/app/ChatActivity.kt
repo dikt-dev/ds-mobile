@@ -6,6 +6,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
 import android.graphics.drawable.BitmapDrawable
@@ -17,6 +18,7 @@ import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import android.provider.Settings
 import android.speech.RecognizerIntent
+import android.util.Base64
 import android.widget.ImageView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -102,6 +104,7 @@ import com.dsmobile.app.media.MediaUtils
 import com.dsmobile.app.net.ApiClient
 import com.dsmobile.app.net.BiliPreview
 import com.dsmobile.app.net.WebPreview
+import java.io.ByteArrayOutputStream
 import java.io.File
 import com.dsmobile.app.parse.DocumentParser
 import com.dsmobile.app.speech.TtsManager
@@ -344,16 +347,43 @@ private fun ChatScreen(
             web != null -> text + "\n\n" + webMetaText(web, webUrl!!)
             else -> text
         }
+        val biliCookie = settings.biliCookie.ifBlank {
+            if (settings.biliSessdata.isBlank()) "" else "SESSDATA=${settings.biliSessdata}"
+        }
+        val frame = if (bili != null && bili.storyboardUrl.isNotBlank()) {
+            status = "抽取B站视频帧…"
+            runCatching {
+                BiliFrames.loadSingleFrame(
+                    storyboardUrl = bili.storyboardUrl,
+                    cols = bili.storyboardCols,
+                    rows = bili.storyboardRows,
+                    cookie = biliCookie,
+                    cacheDir = context.cacheDir,
+                )
+            }.getOrNull()
+        } else {
+            null
+        }
         val pendingMessage = PendingMessageEntity(
             content = outgoing,
             clientMessageId = UUID.randomUUID().toString(),
         )
         val pendingId = dao.insertPending(pendingMessage)
         try {
-            api.chatStream(outgoing, pendingMessage.clientMessageId) { delta ->
-                withContext(Dispatchers.Main) {
-                    streamingText += delta
-                    status = "接收中…"
+            if (frame != null) {
+                status = "发送视频帧…"
+                api.chatWithImage(
+                    outgoing,
+                    bitmapToDataUrl(frame),
+                    pendingMessage.clientMessageId,
+                )
+                frame.recycle()
+            } else {
+                api.chatStream(outgoing, pendingMessage.clientMessageId) { delta ->
+                    withContext(Dispatchers.Main) {
+                        streamingText += delta
+                        status = "接收中…"
+                    }
                 }
             }
             dao.deletePending(pendingMessage.copy(id = pendingId))
@@ -979,6 +1009,12 @@ private fun FileMessageCard(
             }
         }
     }
+}
+
+private fun bitmapToDataUrl(bitmap: Bitmap): String {
+    val out = ByteArrayOutputStream()
+    bitmap.compress(Bitmap.CompressFormat.JPEG, 82, out)
+    return "data:image/jpeg;base64," + Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
 }
 
 private fun formatBytes(bytes: Long): String = when {
