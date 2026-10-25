@@ -28,6 +28,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateContentSize
 import androidx.core.content.ContextCompat
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -90,6 +91,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
@@ -708,16 +710,18 @@ private fun ChatScreen(
             ) {
                 Box(
                     modifier = Modifier
-                        .size(40.dp)
+                        .size(42.dp)
                         .clip(CircleShape)
-                        .background(
-                            Brush.linearGradient(
-                                listOf(Color(0xFF7C5CFF), Color(0xFFA78BFA)),
-                            ),
-                        ),
+                        .background(Color(0xFFF0ECFF))
+                        .border(1.dp, Color(0x1F6C5CE7), CircleShape),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text("鱼", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                    Image(
+                        painter = painterResource(R.drawable.avatar),
+                        contentDescription = "大肥鱼头像",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize().clip(CircleShape),
+                    )
                 }
                 Spacer(Modifier.width(11.dp))
                 Column {
