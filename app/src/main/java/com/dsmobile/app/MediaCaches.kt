@@ -1,6 +1,7 @@
 package com.dsmobile.app
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.drawable.Drawable
 import android.util.LruCache
 import androidx.media3.common.MediaItem
@@ -22,6 +23,7 @@ object MediaCaches {
     private val bili = LruCache<String, BiliPreview>(32)
     private val web = LruCache<String, WebPreview>(32)
     private val players = mutableMapOf<String, ExoPlayer>()
+    private val biliFrames = LruCache<String, Bitmap>(8)
 
     fun image(key: String): Drawable? = images.get(key)
     fun putImage(key: String, drawable: Drawable) = images.put(key, drawable)
@@ -31,6 +33,9 @@ object MediaCaches {
 
     fun webPreview(url: String): WebPreview? = web.get(url)
     fun putWebPreview(url: String, preview: WebPreview) = web.put(url, preview)
+
+    fun biliFrame(url: String): Bitmap? = biliFrames.get(url)
+    fun putBiliFrame(url: String, bitmap: Bitmap) = biliFrames.put(url, bitmap)
 
     fun player(context: Context, api: ApiClient, key: String): ExoPlayer =
         players.getOrPut(key) {
@@ -56,5 +61,6 @@ object MediaCaches {
 
     fun clearBili() {
         bili.evictAll()
+        biliFrames.evictAll()
     }
 }

@@ -556,6 +556,7 @@ private fun ChatScreen(
                 MessageBubble(
                     message = message,
                     api = api,
+                    biliCookie = settings.biliSessdata,
                     onSpeak = { TtsManager.speak(context, settings, it) },
                     onPrefetch = { TtsManager.prefetch(context, settings, it) },
                 )
@@ -956,13 +957,24 @@ private fun formatBytes(bytes: Long): String = when {
 }
 
 @Composable
-private fun BilibiliCard(api: ApiClient, url: String) {
+private fun BilibiliCard(api: ApiClient, url: String, biliCookie: String) {
     val uriHandler = LocalUriHandler.current
+    val context = LocalContext.current
     var preview by remember(url) { mutableStateOf(MediaCaches.biliPreview(url)) }
+    var frames by remember(url) { mutableStateOf(MediaCaches.biliFrame(url)) }
+    var framesLoading by remember(url) { mutableStateOf(false) }
     LaunchedEffect(url) {
         if (preview == null) {
             preview = runCatching { api.biliPreview(url) }.getOrNull()
             preview?.let { MediaCaches.putBiliPreview(url, it) }
+        }
+    }
+    LaunchedEffect(preview?.playUrl) {
+        val playUrl = preview?.playUrl.orEmpty()
+        if (frames == null && playUrl.isNotBlank()) {
+            framesLoading = true
+            frames = BiliFrames.load(url, playUrl, biliCookie)
+            framesLoading = false
         }
     }
     val displayUrl = url
@@ -1025,6 +1037,25 @@ private fun BilibiliCard(api: ApiClient, url: String) {
                         maxLines = 3,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.padding(top = 3.dp),
+                    )
+                }
+                if (frames != null) {
+                    Image(
+                        bitmap = frames!!.asImageBitmap(),
+                        contentDescription = "B站视频抽帧",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(132.dp)
+                            .padding(top = 6.dp)
+                            .clip(RoundedCornerShape(8.dp)),
+                        contentScale = ContentScale.Crop,
+                    )
+                } else if (framesLoading) {
+                    Text(
+                        "视频抽帧中…",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color(0xFF999999),
+                        modifier = Modifier.padding(top = 4.dp),
                     )
                 }
             }
@@ -1224,6 +1255,7 @@ private fun PendingBubble(
 private fun MessageBubble(
     message: MessageEntity,
     api: ApiClient,
+    biliCookie: String,
     onSpeak: (String) -> Unit,
     onPrefetch: (String) -> Unit,
 ) {
@@ -1364,7 +1396,7 @@ private fun MessageBubble(
                         MediaBubble(api, key, isGif = kind.equals("GIF", ignoreCase = true))
                     }
                     biliUrls.forEach { url ->
-                        BilibiliCard(api, url)
+                        BilibiliCard(api, url, biliCookie)
                     }
                     webUrls.forEach { url ->
                         WebLinkCard(api, url)

@@ -29,6 +29,9 @@ data class BiliPreview(
     val outline: List<String> = emptyList(),
     val subtitle: String = "",
     val subtitleCount: Int = 0,
+    val bvid: String = "",
+    val cid: Long = 0,
+    val playUrl: String = "",
 )
 
 data class WebPreview(
@@ -292,6 +295,24 @@ class ApiClient(
                 var outline = emptyList<String>()
                 var subtitle = ""
                 var subtitleCount = 0
+                var playUrl = ""
+                if (cid > 0) {
+                    runCatching {
+                        val u = "https://api.bilibili.com/x/player/playurl" +
+                            "?bvid=$bvid&cid=$cid&qn=16&fnval=1&fnver=0&fourk=0"
+                        val playReq = Request.Builder().url(u)
+                            .apply { headers.forEach { (k, v) -> header(k, v) } }
+                            .get().build()
+                        execute(playReq).use { pr ->
+                            playUrl = JSONObject(pr.body?.string().orEmpty())
+                                .optJSONObject("data")
+                                ?.optJSONArray("durl")
+                                ?.optJSONObject(0)
+                                ?.optString("url")
+                                .orEmpty()
+                        }
+                    }
+                }
                 if (biliSessdata.isNotBlank() && cid > 0) {
                     val mixin = biliMixinKey(headers)
                     if (mixin != null) {
@@ -380,6 +401,9 @@ class ApiClient(
                     outline = outline,
                     subtitle = subtitle,
                     subtitleCount = subtitleCount,
+                    bvid = bvid,
+                    cid = cid,
+                    playUrl = playUrl,
                 )
             }
         } catch (_: Exception) {
