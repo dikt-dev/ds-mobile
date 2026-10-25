@@ -41,15 +41,30 @@
 
 - 识别 `b23.tv` / `bilibili.com` 链接；
 - 从正文里移除原始长链接；
-- 渲染成哔哩哔哩卡片：B 站图标、域名/短链、打开按钮；
+- 渲染成哔哩哔哩卡片：B 站图标、标题、UP 主、时长、简介摘要、打开按钮；
 - 点击用系统浏览器打开；
+- App 内分享链接时，会把标题/UP/时长/摘要用隐藏的 `[BILI_META]` 块一起发给 AI；
 - 超过 600 字的消息默认折叠 8 行，可展开全文。
 
 截图：
 
 - `screenshot-chat-bilibili.png`
 
-## 6. 输入区
+## 6. 视频 / GIF
+
+- 输入栏新增「视频」；
+- 视频/GIF 原文件上传 R2（≤60MB）；
+- 聊天里存 `[视频:key]` / `[GIF:key]`；
+- 视频用 Media3/ExoPlayer 内嵌播放，带鉴权 Header；
+- GIF 用 `AnimatedImageDrawable` 动图播放；
+- 旧 B 站标题/简介抓取逻辑保留，并新增 App 直连 + Worker 兜底。
+
+截图：
+
+- `screenshot-chat-video2.png`
+- `screenshot-chat-gif.png`
+
+## 7. 输入区
 
 - 底栏白底 + 阴影；
 - 图片/文件/语音按钮单独一行；

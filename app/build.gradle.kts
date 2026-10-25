@@ -65,6 +65,8 @@ dependencies {
     implementation("org.apache.sshd:sshd-core:2.14.0")
     implementation("org.apache.sshd:sshd-sftp:2.14.0")
     implementation("org.slf4j:slf4j-simple:2.0.13")
+    implementation("androidx.media3:media3-exoplayer:1.4.1")
+    implementation("androidx.media3:media3-ui:1.4.1")
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
     implementation("com.github.junrar:junrar:7.5.5")
     implementation("org.apache.commons:commons-compress:1.27.1")
