@@ -75,6 +75,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -297,6 +298,7 @@ private fun ChatScreen(
     var status by remember { mutableStateOf("") }
     var streamingText by remember { mutableStateOf("") }
     var showSettings by remember { mutableStateOf(false) }
+    var initialScrollDone by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
 
@@ -516,9 +518,16 @@ private fun ChatScreen(
     }
 
     val isTyping = busy && streamingText.isEmpty() && isTypingStatus(status)
-    LaunchedEffect(messages.size + pending.size + if (streamingText.isNotEmpty() || isTyping) 1 else 0) {
-        val count = messages.size + pending.size + if (streamingText.isNotEmpty() || isTyping) 1 else 0
-        if (count > 0) listState.animateScrollToItem(count - 1)
+    val itemCount = messages.size + pending.size + if (streamingText.isNotEmpty() || isTyping) 1 else 0
+    LaunchedEffect(itemCount) {
+        if (itemCount <= 0) return@LaunchedEffect
+        if (!initialScrollDone) {
+            // 首次打开直接定位到最新消息，不走 animateScrollToItem，避免看到从上面滑下来的过程。
+            listState.scrollToItem(itemCount - 1)
+            initialScrollDone = true
+        } else {
+            listState.animateScrollToItem(itemCount - 1)
+        }
     }
 
     Column(
@@ -554,7 +563,10 @@ private fun ChatScreen(
         }
         LazyColumn(
             state = listState,
-            modifier = Modifier.weight(1f).fillMaxWidth(),
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .alpha(if (initialScrollDone || (messages.isEmpty() && pending.isEmpty())) 1f else 0f),
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 14.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
