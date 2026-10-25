@@ -622,6 +622,7 @@ class ApiClient(
         val bytes = diskCache?.get(biliKey(url)) ?: return null
         return runCatching {
             val o = JSONObject(String(bytes))
+            if (o.optString("cover").isBlank()) return null
             val outline = o.optJSONArray("outline")?.let { arr ->
                 (0 until arr.length()).map { arr.optString(it) }
             } ?: emptyList()
