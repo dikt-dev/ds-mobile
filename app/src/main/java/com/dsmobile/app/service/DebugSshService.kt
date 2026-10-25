@@ -9,7 +9,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.IBinder
-import android.util.Base64
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
@@ -145,7 +144,6 @@ class DebugSshService : Service() {
                 keySize = 2048
             }
             server.signatureFactories = listOf(
-                BuiltinSignatures.ed25519,
                 BuiltinSignatures.rsaSHA256,
                 BuiltinSignatures.rsa,
             )
@@ -176,9 +174,7 @@ class DebugSshService : Service() {
             val authorizedKeys = if (authorizedKeysFile.isFile) {
                 runCatching {
                     AuthorizedKeyEntry.readAuthorizedKeys(authorizedKeysFile.toPath())
-                        .mapNotNull { entry ->
-                            entry.resolvePublicKey(null, PublicKeyEntryResolver.IGNORING)
-                        }
+                        .mapNotNull { it.resolvePublicKey(null, PublicKeyEntryResolver.IGNORING)?.encoded }
                 }.onFailure { Log.w(TAG, "read authorized_keys failed: ${it.message}") }
                     .getOrDefault(emptyList())
             } else {
@@ -187,7 +183,8 @@ class DebugSshService : Service() {
             if (authorizedKeys.isNotEmpty()) {
                 server.passwordAuthenticator = PasswordAuthenticator { _, _, _ -> false }
                 server.publickeyAuthenticator = PublickeyAuthenticator { username, key, _ ->
-                    username == USERNAME && authorizedKeys.any { it == key }
+                    val enc = key.encoded
+                    username == USERNAME && enc != null && authorizedKeys.any { it.contentEquals(enc) }
                 }
                 Log.i(TAG, "auth=publickey keys=${authorizedKeys.size}")
             } else {
@@ -237,31 +234,6 @@ class DebugSshService : Service() {
             Log.w(TAG, "localIp failed", e)
         }
         return "未知"
-    }
-
-    /** 解析 Ed25519 authorized_keys，转成 Java X.509 DER 和 MINA key.encoded 比较。 */
-    private fun parseAuthorizedKey(line: String): ByteArray? {
-        val parts = line.trim().split(Regex("\\s+"))
-        if (parts.size < 2 || parts[0] != "ssh-ed25519") return null
-        val blob = runCatching { Base64.decode(parts[1], Base64.DEFAULT) }.getOrNull() ?: return null
-        if (blob.size < 8) return null
-        fun intAt(pos: Int): Int =
-            ((blob[pos].toInt() and 0xFF) shl 24) or
-                ((blob[pos + 1].toInt() and 0xFF) shl 16) or
-                ((blob[pos + 2].toInt() and 0xFF) shl 8) or
-                (blob[pos + 3].toInt() and 0xFF)
-        val typeLen = intAt(0)
-        if (typeLen <= 0 || 4 + typeLen + 4 > blob.size) return null
-        if (String(blob, 4, typeLen, Charsets.UTF_8) != "ssh-ed25519") return null
-        val keyPos = 4 + typeLen
-        val keyLen = intAt(keyPos)
-        if (keyLen != 32 || keyPos + 4 + keyLen > blob.size) return null
-        val der = ByteArray(12 + 32)
-        byteArrayOf(
-            0x30, 0x2A, 0x30, 0x05, 0x06, 0x03, 0x2B, 0x65, 0x70, 0x03, 0x21, 0x00,
-        ).copyInto(der)
-        blob.copyInto(der, 12, keyPos + 4, keyPos + 4 + 32)
-        return der
     }
 
     private fun createNotificationChannel() {
