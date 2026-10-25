@@ -1505,7 +1505,7 @@ private fun MessageBubble(
         .map { it.groupValues[1] }
         .toList()
 
-    val voiceMarkers = listOf("【语音】", "[语音]", "【语音消息】", "（语音）")
+    val voiceMarkers = listOf("【语音消息】", "[语音消息]", "【语音】", "[语音]", "（语音）")
     val firstMarker = voiceMarkers
         .mapNotNull { marker -> contentForText.indexOf(marker).takeIf { it >= 0 }?.let { it to marker } }
         .minByOrNull { it.first }
