@@ -692,6 +692,13 @@ private fun ChatScreen(
         }
     }
 
+    // 先把本地 Room 缓存显示出来，不等网络；首装无缓存时才显示加载态。
+    LaunchedEffect(messages.size, pending.size) {
+        if (!historyReady && (messages.isNotEmpty() || pending.isNotEmpty())) {
+            historyReady = true
+        }
+    }
+
     LaunchedEffect(Unit) {
         try {
             // 首装全量补齐历史；已有旧版本缓存则增量 + 往前回填更早的记录。
