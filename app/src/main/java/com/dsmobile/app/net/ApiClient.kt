@@ -36,6 +36,7 @@ data class BiliPreview(
     val storyboardUrl: String = "",
     val storyboardCols: Int = 0,
     val storyboardRows: Int = 0,
+    val cover: String = "",
 )
 
 data class WebPreview(
@@ -249,6 +250,35 @@ class ApiClient(
         }
     }
 
+    suspend fun biliImage(url: String): ByteArray? = withContext(Dispatchers.IO) {
+        if (url.isBlank()) return@withContext null
+        val normalized = when {
+            url.startsWith("//") -> "https:$url"
+            url.startsWith("http://") -> url.replaceFirst("http://", "https://")
+            else -> url
+        }
+        val key = "bili-cover:$normalized"
+        diskCache?.get(key)?.let { return@withContext it }
+        val request = Request.Builder()
+            .url(normalized)
+            .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/125.0 Mobile Safari/537.36")
+            .header("Referer", "https://www.bilibili.com/")
+            .apply {
+                val cookie = biliCookie.ifBlank {
+                    if (biliSessdata.isNotBlank()) "SESSDATA=$biliSessdata" else ""
+                }
+                if (cookie.isNotBlank()) header("Cookie", cookie)
+            }
+            .get()
+            .build()
+        execute(request).use { response ->
+            if (!response.isSuccessful) return@withContext null
+            val bytes = response.body?.bytes() ?: return@withContext null
+            diskCache?.put(key, bytes)
+            bytes
+        }
+    }
+
     suspend fun biliPreview(url: String): BiliPreview? = withContext(Dispatchers.IO) {
         cachedBiliPreview(url)?.let { return@withContext it }
         val direct = directBiliPreview(url)
@@ -440,6 +470,9 @@ class ApiClient(
                     storyboardUrl = storyboardUrl,
                     storyboardCols = storyboardCols,
                     storyboardRows = storyboardRows,
+                    cover = data.optString("pic").let {
+                        if (it.startsWith("//")) "https:$it" else it.replaceFirst("http://", "https://")
+                    },
                 )
             }
         } catch (_: Exception) {
@@ -502,7 +535,9 @@ class ApiClient(
                     (0 until arr.length()).map { arr.optString(it) }
                 } ?: emptyList(),
                 subtitle = root.optString("subtitle"),
-                subtitleCount = root.optInt("subtitle_count"),            )
+                subtitleCount = root.optInt("subtitle_count"),
+                cover = root.optString("cover"),
+            )
         }
     }.getOrNull()
 
@@ -605,6 +640,7 @@ class ApiClient(
                 storyboardUrl = o.optString("storyboard_url"),
                 storyboardCols = o.optInt("storyboard_cols"),
                 storyboardRows = o.optInt("storyboard_rows"),
+                cover = o.optString("cover"),
             )
         }.getOrNull()
     }
@@ -626,6 +662,7 @@ class ApiClient(
             .put("storyboard_url", p.storyboardUrl)
             .put("storyboard_cols", p.storyboardCols)
             .put("storyboard_rows", p.storyboardRows)
+            .put("cover", p.cover)
         diskCache?.put(biliKey(url), o.toString().toByteArray())
     }
 

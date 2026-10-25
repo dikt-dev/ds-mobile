@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
+import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.AnimatedImageDrawable
 import android.graphics.drawable.Drawable
 import android.net.Uri
@@ -971,6 +972,194 @@ private fun formatBytes(bytes: Long): String = when {
 }
 
 @Composable
+private fun BiliCover(api: ApiClient, url: String, duration: Int) {
+    var drawable by remember(url) { mutableStateOf(MediaCaches.image("bili-cover:$url")) }
+    LaunchedEffect(url) {
+        if (drawable == null && url.isNotBlank()) {
+            val bytes = api.biliImage(url)
+            if (bytes != null) {
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.let {
+                    val d = BitmapDrawable(null, it)
+                    MediaCaches.putImage("bili-cover:$url", d)
+                    drawable = d
+                }
+            }
+        }
+    }
+    Box(
+        modifier = Modifier
+            .width(110.dp)
+            .height(72.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(Color(0xFF1A1A1A)),
+    ) {
+        drawable?.let { image ->
+            AndroidView(
+                factory = { ctx ->
+                    ImageView(ctx).apply {
+                        scaleType = ImageView.ScaleType.CENTER_CROP
+                        setImageDrawable(image)
+                    }
+                },
+                modifier = Modifier.fillMaxSize(),
+            )
+        } ?: Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+            Text("B", color = Color(0xFFFB7299), style = MaterialTheme.typography.titleLarge)
+        }
+        Surface(
+            shape = CircleShape,
+            color = Color(0x99000000),
+            modifier = Modifier.align(Alignment.Center).size(28.dp),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Text("▶", color = Color.White, style = MaterialTheme.typography.labelSmall)
+            }
+        }
+        if (duration > 0) {
+            Surface(
+                color = Color(0xB3000000),
+                shape = RoundedCornerShape(4.dp),
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(4.dp),
+            ) {
+                Text(
+                    formatDuration(duration),
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun BilibiliCardQQ(api: ApiClient, url: String, biliCookie: String) {
+    val uriHandler = LocalUriHandler.current
+    val context = LocalContext.current
+    var preview by remember(url) { mutableStateOf(MediaCaches.biliPreview(url)) }
+    var frames by remember(url) { mutableStateOf(MediaCaches.biliFrame(url)) }
+    var framesLoading by remember(url) { mutableStateOf(false) }
+    var showFrames by remember(url) { mutableStateOf(false) }
+    LaunchedEffect(url) {
+        if (preview == null) {
+            preview = runCatching { api.biliPreview(url) }.getOrNull()
+            preview?.let { MediaCaches.putBiliPreview(url, it) }
+        }
+    }
+    LaunchedEffect(preview?.storyboardUrl, preview?.playUrl) {
+        val p = preview
+        if (frames == null && p != null && (p.storyboardUrl.isNotBlank() || p.playUrl.isNotBlank())) {
+            framesLoading = true
+            frames = BiliFrames.load(
+                cacheKey = url,
+                storyboardUrl = p.storyboardUrl,
+                storyboardCols = p.storyboardCols,
+                storyboardRows = p.storyboardRows,
+                playUrl = p.playUrl,
+                cookie = biliCookie,
+                cacheDir = context.cacheDir,
+            )
+            framesLoading = false
+        }
+    }
+    val displayUrl = url.removePrefix("https://").removePrefix("http://")
+    val summary = preview?.let { it.summary.ifBlank { it.desc } }.orEmpty()
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .clickable { uriHandler.openUri(url) },
+        shape = RoundedCornerShape(10.dp),
+        color = Color.White,
+        border = BorderStroke(1.dp, Color(0x14000000)),
+    ) {
+        Column(modifier = Modifier.padding(8.dp)) {
+            Row(verticalAlignment = Alignment.Top) {
+                BiliCover(api, preview?.cover.orEmpty(), preview?.duration ?: 0)
+                Spacer(Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        preview?.title?.takeIf { it.isNotBlank() } ?: "哔哩哔哩视频",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Medium,
+                        color = Color(0xFF1F1F1F),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "哔哩哔哩",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFFFB7299),
+                        )
+                        preview?.owner?.takeIf { it.isNotBlank() }?.let {
+                            Text(
+                                " · $it",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color(0xFF999999),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                    if (summary.isNotBlank()) {
+                        Text(
+                            summary,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFF666666),
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(top = 2.dp),
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.height(5.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    displayUrl,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color(0xFF999999),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                Text("打开 ↗", style = MaterialTheme.typography.labelSmall, color = Color(0xFFFB7299))
+            }
+            if (frames != null || framesLoading) {
+                TextButton(
+                    onClick = { showFrames = !showFrames },
+                    contentPadding = PaddingValues(horizontal = 0.dp, vertical = 0.dp),
+                ) {
+                    Text(
+                        if (showFrames) "收起视频帧" else if (framesLoading) "视频抽帧中…" else "查看视频帧",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color(0xFF7C5CBF),
+                    )
+                }
+            }
+            if (showFrames && frames != null) {
+                Image(
+                    bitmap = frames!!.asImageBitmap(),
+                    contentDescription = "B站视频帧",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(160.dp)
+                        .padding(top = 4.dp)
+                        .clip(RoundedCornerShape(8.dp)),
+                    contentScale = ContentScale.Fit,
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun BilibiliCard(api: ApiClient, url: String, biliCookie: String) {
     val uriHandler = LocalUriHandler.current
     val context = LocalContext.current
@@ -1661,7 +1850,7 @@ private fun MessageBubble(
                         MediaBubble(api, key, isGif = kind.equals("GIF", ignoreCase = true))
                     }
                     biliUrls.forEach { url ->
-                        BilibiliCard(api, url, biliCookie)
+                        BilibiliCardQQ(api, url, biliCookie)
                     }
                     webUrls.forEach { url ->
                         WebLinkCard(api, url)
