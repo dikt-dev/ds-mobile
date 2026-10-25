@@ -50,6 +50,7 @@ adb shell am start -n com.dsmobile.app/.ChatActivity
 - 文字聊天、Room 本地库、5 秒增量轮询；
 - SSE 流式回复；
 - `client_message_id` 幂等，超时重试不会重复落库；
+- 图片消息：相册选图、本地压缩、发送、R2 回放；
 - 历史显示 Web/QQ/App 全部渠道；
 - 后台助手消息通知（`DS-Mobile 消息` 渠道）；
 - 重启后自动恢复服务并继续收通知；

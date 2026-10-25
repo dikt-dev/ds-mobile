@@ -5,20 +5,26 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -47,6 +53,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -55,6 +63,7 @@ import com.dsmobile.app.data.AppDatabase
 import com.dsmobile.app.data.MessageEntity
 import com.dsmobile.app.data.PendingMessageEntity
 import com.dsmobile.app.data.SettingsStore
+import com.dsmobile.app.media.MediaUtils
 import com.dsmobile.app.net.ApiClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -254,6 +263,28 @@ private fun ChatScreen(
         if (page.messages.isNotEmpty()) dao.insertAll(page.messages)
     }
 
+    val imagePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                busy = true
+                status = "图片发送中…"
+                try {
+                    val dataUrl = MediaUtils.imageToDataUrl(context, uri)
+                    api.chatWithImage("", dataUrl, UUID.randomUUID().toString())
+                    delay(300)
+                    syncEvents()
+                    status = ""
+                } catch (e: Exception) {
+                    status = "图片发送失败：${e.message}"
+                } finally {
+                    busy = false
+                }
+            }
+        }
+    }
+
     LaunchedEffect(token) {
         if (token.isNotBlank()) {
             com.dsmobile.app.service.KeepAliveService.start(context)
@@ -302,7 +333,7 @@ private fun ChatScreen(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             items(messages, key = { it.id }) { message ->
-                MessageBubble(message)
+                MessageBubble(message, api)
             }
             items(pending, key = { "pending-${it.id}" }) { message ->
                 PendingBubble(
@@ -345,6 +376,17 @@ private fun ChatScreen(
             modifier = Modifier.fillMaxWidth().padding(12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            OutlinedButton(
+                onClick = {
+                    imagePicker.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                    )
+                },
+                enabled = !busy,
+            ) {
+                Text("图片")
+            }
+            Spacer(Modifier.width(8.dp))
             OutlinedTextField(
                 value = input,
                 onValueChange = { input = it },
@@ -439,7 +481,7 @@ private fun PendingBubble(
 }
 
 @Composable
-private fun MessageBubble(message: MessageEntity) {
+private fun MessageBubble(message: MessageEntity, api: ApiClient) {
     val isUser = message.role == "user"
     val channel = when (message.channel) {
         "mobile" -> "App"
@@ -447,6 +489,13 @@ private fun MessageBubble(message: MessageEntity) {
         "astrobot" -> "QQ"
         else -> message.channel
     }
+    val imageKeys = Regex("\\[图片:([^\\]]+)]")
+        .findAll(message.content)
+        .map { it.groupValues[1] }
+        .toList()
+    val display = message.content
+        .replace(Regex("\\[图片:([^\\]]+)]"), "")
+        .trim()
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
@@ -458,13 +507,39 @@ private fun MessageBubble(message: MessageEntity) {
                     style = MaterialTheme.typography.labelSmall,
                 )
                 Spacer(Modifier.height(4.dp))
-                Text(
-                    message.content,
-                    style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 30,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                if (display.isNotEmpty()) {
+                    Text(
+                        display,
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 30,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                imageKeys.forEach { key ->
+                    MessageImage(api, key)
+                }
             }
         }
+    }
+}
+
+@Composable
+private fun MessageImage(api: ApiClient, key: String) {
+    var bitmap by remember(key) { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
+    LaunchedEffect(key) {
+        runCatching { api.image(key) }.onSuccess { bytes ->
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.let {
+                bitmap = it.asImageBitmap()
+            }
+        }
+    }
+    bitmap?.let {
+        Spacer(Modifier.height(6.dp))
+        Image(
+            bitmap = it,
+            contentDescription = null,
+            modifier = Modifier.fillMaxWidth().heightIn(max = 320.dp),
+            contentScale = ContentScale.Fit,
+        )
     }
 }

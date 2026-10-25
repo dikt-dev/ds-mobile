@@ -152,6 +152,54 @@ class ApiClient(
             }
         }
 
+    suspend fun image(key: String): ByteArray = withContext(Dispatchers.IO) {
+        val encoded = java.net.URLEncoder.encode(key, "UTF-8")
+        val request = Request.Builder()
+            .url("$baseUrl/api/app/image?key=$encoded")
+            .header("Authorization", "Bearer ${requireToken()}")
+            .get()
+            .build()
+        execute(request).use { response ->
+            val bytes = response.body?.bytes() ?: ByteArray(0)
+            if (!response.isSuccessful) throw ApiException(errorText(response.code, ""))
+            bytes
+        }
+    }
+
+    suspend fun chatWithImage(
+        text: String,
+        dataUrl: String,
+        clientMessageId: String? = null,
+    ): String = withContext(Dispatchers.IO) {
+        val parts = JSONArray()
+        if (text.isNotBlank()) parts.put(JSONObject().put("type", "text").put("text", text))
+        parts.put(
+            JSONObject()
+                .put("type", "image_url")
+                .put("image_url", JSONObject().put("url", dataUrl)),
+        )
+        val messages = JSONArray().put(JSONObject().put("role", "user").put("content", parts))
+        val body = JSONObject().put("messages", messages).put("stream", false)
+        if (!clientMessageId.isNullOrBlank()) body.put("client_message_id", clientMessageId)
+        val request = Request.Builder()
+            .url("$baseUrl/v1/chat/completions")
+            .header("Authorization", "Bearer ${requireToken()}")
+            .header("X-Client-Channel", "mobile")
+            .post(body.toString().toRequestBody(jsonType))
+            .build()
+        execute(request).use { response ->
+            val textBody = response.body?.string().orEmpty()
+            if (!response.isSuccessful) throw ApiException(errorText(response.code, textBody))
+            JSONObject(textBody)
+                .optJSONArray("choices")
+                ?.optJSONObject(0)
+                ?.optJSONObject("message")
+                ?.optString("content")
+                ?.takeIf { it.isNotBlank() }
+                ?: throw ApiException("回复为空")
+        }
+    }
+
     private fun execute(request: Request) = client.newCall(request).execute()
 
     private fun requireToken(): String = token ?: throw ApiException("设备未配对")
