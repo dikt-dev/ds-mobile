@@ -114,6 +114,7 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import com.dsmobile.app.parse.DocumentParser
 import com.dsmobile.app.speech.TtsManager
+import com.dsmobile.app.speech.VoiceRecorder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -442,10 +443,50 @@ private fun ChatScreen(
         }
     }
 
+    val recorder = remember { VoiceRecorder() }
+    var recording by remember { mutableStateOf(false) }
+    DisposableEffect(Unit) {
+        onDispose { recorder.cancel() }
+    }
+
+    fun startAzureRecording() {
+        if (settings.azureKey.isBlank()) {
+            status = "未配置 Azure Speech Key，改用系统识别"
+            startVoice()
+            return
+        }
+        if (recorder.start()) {
+            recording = true
+            status = "录音中…再点“停止”结束"
+        } else {
+            status = "无法启动录音，改用系统识别"
+            startVoice()
+        }
+    }
+
+    fun stopAzureRecording() {
+        recording = false
+        val wav = recorder.stop()
+        if (wav == null) {
+            status = "录音太短"
+            return
+        }
+        status = "转写中…"
+        scope.launch {
+            try {
+                val text = api.stt(wav, settings.azureKey, settings.azureRegion)
+                status = ""
+                if (text.isNotBlank()) sendText(text)
+            } catch (e: Exception) {
+                status = "转写失败：${e.message}"
+            }
+        }
+    }
+
     val voicePermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
-        if (granted) startVoice() else status = "需要麦克风权限"
+        if (granted) startAzureRecording() else status = "需要麦克风权限"
     }
 
     val biliLoginLauncher = rememberLauncherForActivityResult(
@@ -700,7 +741,7 @@ private fun ChatScreen(
                 Spacer(Modifier.height(1.dp))
             }
         }
-        if (status.contains("失败")) {
+        if (status.contains("失败") || status.startsWith("录音") || status.startsWith("转写")) {
             Text(
                 status,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
@@ -757,14 +798,19 @@ private fun ChatScreen(
             Spacer(Modifier.width(6.dp))
             OutlinedButton(
                 onClick = {
-                    val granted = ContextCompat.checkSelfPermission(
-                        context, Manifest.permission.RECORD_AUDIO
-                    ) == PackageManager.PERMISSION_GRANTED
-                    if (granted) startVoice() else voicePermission.launch(Manifest.permission.RECORD_AUDIO)
+                    if (recording) {
+                        stopAzureRecording()
+                    } else {
+                        val granted = ContextCompat.checkSelfPermission(
+                            context, Manifest.permission.RECORD_AUDIO
+                        ) == PackageManager.PERMISSION_GRANTED
+                        if (granted) startAzureRecording()
+                        else voicePermission.launch(Manifest.permission.RECORD_AUDIO)
+                    }
                 },
                 enabled = !busy,
             ) {
-                Text("语音")
+                Text(if (recording) "停止" else "语音")
             }
         }
         Row(

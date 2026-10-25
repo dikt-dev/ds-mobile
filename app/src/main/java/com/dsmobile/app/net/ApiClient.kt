@@ -215,6 +215,32 @@ class ApiClient(
         }
     }
 
+    suspend fun stt(wav: ByteArray, azureKey: String, region: String): String = withContext(Dispatchers.IO) {
+        if (azureKey.isBlank()) throw ApiException("未配置 Azure Speech Key")
+        if (wav.size < 1024) throw ApiException("录音太短")
+        val safeRegion = region.trim().ifBlank { "eastus" }
+        val request = Request.Builder()
+            .url(
+                "https://$safeRegion.stt.speech.microsoft.com/speech/recognition/" +
+                    "conversation/cognitiveservices/v1?language=zh-CN",
+            )
+            .header("Ocp-Apim-Subscription-Key", azureKey)
+            .header("Content-Type", "audio/wav; codecs=audio/pcm; samplerate=16000")
+            .header("Accept", "application/json")
+            .post(wav.toRequestBody("audio/wav".toMediaType()))
+            .build()
+        execute(request).use { response ->
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) throw ApiException("STT HTTP ${response.code}: ${body.take(200)}")
+            val json = JSONObject(body)
+            val text = json.optString("DisplayText").ifBlank {
+                json.optString("Text").ifBlank { json.optString("text") }
+            }.trim()
+            if (text.isBlank()) throw ApiException("没有识别到文字")
+            text
+        }
+    }
+
     suspend fun chatWithImage(
         text: String,
         dataUrl: String,
