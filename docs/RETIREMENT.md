@@ -1,17 +1,19 @@
 # QQ / Termux 退役准备
 
 > 日期：2026-10-25  
-> 状态：**未执行，等待确认**。QQ 和 Termux 仍在手机上运行。
+> 状态：**已执行直接卸载**。QQ 和 Termux 已从手机移除，DS-Mobile 保持运行。
 
-## 当前设备状态
+## 退役结果
 
 ```text
-com.tencent.mobileqq         运行中
-com.tencent.mobileqq:MSF     运行中
-com.termux                   运行中
-com.termux.boot              已安装
-com.termux.api               已安装
+com.tencent.mobileqq   已卸载
+com.termux             已卸载
+com.termux.boot        已卸载
+com.termux.api         已卸载
+com.dsmobile.app       保留，KeepAliveService 运行中
 ```
+
+回退需要重新安装 QQ/Termux 并重新登录；旧数据已随卸载删除。
 
 ## 退役前检查
 
