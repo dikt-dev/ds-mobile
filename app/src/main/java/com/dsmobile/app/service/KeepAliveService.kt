@@ -13,6 +13,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.dsmobile.app.ChatActivity
+import com.dsmobile.app.replaceFaceMarkers
 import com.dsmobile.app.data.MessageEntity
 import com.dsmobile.app.data.SettingsStore
 import com.dsmobile.app.net.ApiClient
@@ -70,8 +71,11 @@ class KeepAliveService : Service() {
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val notifiedMessageIds = java.util.Collections.synchronizedSet(mutableSetOf<Long>())
     private var loopJob: Job? = null
     private var eventJob: Job? = null
+    private var heartbeatJob: Job? = null
+    private var proactiveJob: Job? = null
     private lateinit var settings: SettingsStore
 
     override fun onCreate() {
@@ -86,6 +90,14 @@ class KeepAliveService : Service() {
             delay(1_500)
             eventLoop()
         }
+        heartbeatJob = scope.launch {
+            delay(2_500)
+            heartbeatLoop()
+        }
+        proactiveJob = scope.launch {
+            delay(4_000)
+            proactiveLoop()
+        }
         Log.i(TAG, "service created")
     }
 
@@ -95,6 +107,15 @@ class KeepAliveService : Service() {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         Log.i(TAG, "task removed, keep running")
+        // 某些 OEM 在划掉最近任务时会顺手杀服务；再拉一次，配合 START_STICKY。
+        try {
+            ContextCompat.startForegroundService(
+                this,
+                Intent(this, KeepAliveService::class.java),
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "restart after task removal failed: ${e.message}")
+        }
         super.onTaskRemoved(rootIntent)
     }
 
@@ -102,6 +123,8 @@ class KeepAliveService : Service() {
         running = false
         loopJob?.cancel()
         eventJob?.cancel()
+        heartbeatJob?.cancel()
+        proactiveJob?.cancel()
         scope.cancel()
         Log.i(TAG, "service destroyed")
         super.onDestroy()
@@ -121,6 +144,50 @@ class KeepAliveService : Service() {
             updateNotification(status)
             Log.d(TAG, "health=$status")
             delay(3_000)
+        }
+    }
+
+    /** 5 分钟一次心跳；Worker 3 小时收不到才会认为通道掉线。 */
+    private suspend fun heartbeatLoop() {
+        while (scope.isActive) {
+            val token = settings.token
+            if (!token.isNullOrBlank()) {
+                try {
+                    ApiClient(settings.baseUrl, token).heartbeat()
+                    Log.d(TAG, "heartbeat ok")
+                } catch (e: Exception) {
+                    Log.w(TAG, "heartbeat failed: ${e.message}")
+                }
+            }
+            delay(5 * 60_000L)
+        }
+    }
+
+    /** 主动消息队列消费者：消息本身走 events；这里 ACK 清队列并保留推送能力。 */
+    private suspend fun proactiveLoop() {
+        while (scope.isActive) {
+            val token = settings.token
+            if (!token.isNullOrBlank()) {
+                try {
+                    val api = ApiClient(settings.baseUrl, token)
+                    val pushes = api.proactivePending()
+                    for (push in pushes) {
+                        val messageId = push.messageId
+                        val alreadyNotified = messageId != null && messageId in notifiedMessageIds
+                        if (!appVisible && !alreadyNotified && push.content.isNotBlank()) {
+                            notifyProactive(push.content)
+                            if (messageId != null) notifiedMessageIds.add(messageId)
+                        }
+                    }
+                    if (pushes.isNotEmpty()) {
+                        api.proactiveAck(pushes.map { it.queueId })
+                        Log.i(TAG, "proactive acked=${pushes.size}")
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "proactive poll failed: ${e.message}")
+                }
+            }
+            delay(30_000)
         }
     }
 
@@ -150,8 +217,12 @@ class KeepAliveService : Service() {
                 val page = ApiClient(settings.baseUrl, token).events(last, 20)
                 for (message in page.messages) {
                     if (message.id > last) {
-                        if (message.role == "assistant" && !appVisible) {
+                        if (message.role == "assistant" && !appVisible &&
+                            message.id !in notifiedMessageIds
+                        ) {
                             notifyMessage(message)
+                            notifiedMessageIds.add(message.id)
+                            if (notifiedMessageIds.size > 800) notifiedMessageIds.clear()
                         }
                         last = message.id
                     }
@@ -165,9 +236,21 @@ class KeepAliveService : Service() {
     }
 
     private fun notifyMessage(message: MessageEntity) {
+        notifyText(
+            if (message.proactiveKind != null) "大肥鱼 · 主动消息" else "大肥鱼",
+            message.content,
+        )
+    }
+
+    /** 队列推送：即使 events 轮询还没到，也先把主动消息弹出来。 */
+    private fun notifyProactive(content: String) {
+        notifyText("大肥鱼 · 主动消息", content)
+    }
+
+    private fun notifyText(title: String, raw: String) {
         val manager = getSystemService(NotificationManager::class.java)
         if (!manager.areNotificationsEnabled()) return
-        val text = message.content.replace(Regex("\\s+"), " ").trim().take(160)
+        val text = replaceFaceMarkers(raw).replace(Regex("\\s+"), " ").trim().take(160)
         val pendingIntent = PendingIntent.getActivity(
             this,
             1,
@@ -175,7 +258,7 @@ class KeepAliveService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         val notification = NotificationCompat.Builder(this, MESSAGE_CHANNEL_ID)
-            .setContentTitle("大肥鱼")
+            .setContentTitle(title)
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setSmallIcon(android.R.drawable.stat_notify_chat)

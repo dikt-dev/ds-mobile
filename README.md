@@ -56,6 +56,11 @@ adb shell am start -n com.dsmobile.app/.ChatActivity
 - 视频/GIF：上传 R2，视频内嵌播放，GIF 动图播放；
 - 历史显示 Web/QQ/App 全部渠道；
 - 后台助手消息通知（`DS-Mobile 消息` 渠道）；
+- 主动消息：前台服务每 30 秒消费 `/api/proactive/pending`，先本地通知再 ACK；
+- `message_id` 去重，events 同步和队列推送不会重复通知；
+- 每 5 分钟 App 心跳；划掉最近任务后 `onTaskRemoved` + `START_STICKY` 自动拉起；
+- `[face:名称]` 转 emoji（未收录保留 `[名称]`），语音标记继续按气泡展示；
+- `inject_history: true`，Worker 补最近 10 轮；
 - 重启后自动恢复服务并继续收通知；
 - 发送 outbox：失败消息保留在本地，可在气泡上重试；
 - Token 用 EncryptedSharedPreferences 保存，旧明文自动迁移；

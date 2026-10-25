@@ -691,33 +691,33 @@ private fun ChatScreen(
             .fillMaxSize()
             .background(
                 Brush.verticalGradient(
-                    listOf(Color(0xFFF8F6FF), Color(0xFFF2F3F7)),
+                    listOf(Color(0xFFFCFAFF), Color(0xFFF4F2F8)),
                 ),
             )
             .statusBarsPadding()
             .imePadding(),
     ) {
         Surface(
-            color = Color.White,
+            color = Color(0xF2FFFFFF),
             shadowElevation = 0.dp,
-            border = BorderStroke(1.dp, Color(0x0F000000)),
+            border = BorderStroke(1.dp, Color(0x0A000000)),
         ) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 11.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(
                     modifier = Modifier
-                        .size(42.dp)
+                        .size(40.dp)
                         .clip(CircleShape)
                         .background(
                             Brush.linearGradient(
-                                listOf(Color(0xFF7C5CFF), Color(0xFFB38CFF)),
+                                listOf(Color(0xFF7C5CFF), Color(0xFFA78BFA)),
                             ),
                         ),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text("鱼", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    Text("鱼", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 17.sp)
                 }
                 Spacer(Modifier.width(11.dp))
                 Column {
@@ -725,7 +725,7 @@ private fun ChatScreen(
                         "大肥鱼",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
-                        color = Color(0xFF20202A),
+                        color = Color(0xFF1F1D27),
                     )
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(
@@ -734,11 +734,11 @@ private fun ChatScreen(
                                 .clip(CircleShape)
                                 .background(Color(0xFF34C759)),
                         )
-                        Spacer(Modifier.width(4.dp))
+                        Spacer(Modifier.width(5.dp))
                         Text(
-                            "DS-Mobile · 在线",
+                            "在线 · 已连接",
                             style = MaterialTheme.typography.labelSmall,
-                            color = Color(0xFF8A8794),
+                            color = Color(0xFF9A94A6),
                         )
                     }
                 }
@@ -746,7 +746,7 @@ private fun ChatScreen(
                 HeaderAction(Icons.Filled.BugReport) {
                     context.startActivity(Intent(context, MainActivity::class.java))
                 }
-                Spacer(Modifier.width(6.dp))
+                Spacer(Modifier.width(2.dp))
                 HeaderAction(Icons.Filled.Settings) { showSettings = true }
             }
         }
@@ -756,8 +756,8 @@ private fun ChatScreen(
                 .weight(1f)
                 .fillMaxWidth()
                 .alpha(if (initialScrollDone || (messages.isEmpty() && pending.isEmpty())) 1f else 0f),
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             itemsIndexed(
                 items = messages,
@@ -829,10 +829,10 @@ private fun ChatScreen(
         }
         Surface(
             color = Color.White,
-            shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp),
-            shadowElevation = 10.dp,
+            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+            shadowElevation = 8.dp,
         ) {
-            Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Column(Modifier.padding(horizontal = 14.dp, vertical = 9.dp)) {
                 if (voiceMode) {
                     VoiceComposer(
                         recording = recording,
@@ -880,13 +880,8 @@ private fun ChatScreen(
                             voiceMode = true
                         }
                         Spacer(Modifier.weight(1f))
-                        Text(
-                            "文字 · 语音 · 文件",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Color(0xFFAAA6B5),
-                        )
                     }
-                    Spacer(Modifier.height(7.dp))
+                    Spacer(Modifier.height(6.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.Bottom,
@@ -895,13 +890,13 @@ private fun ChatScreen(
                             value = input,
                             onValueChange = { input = it },
                             modifier = Modifier.weight(1f),
-                            placeholder = { Text("说点什么…") },
+                            placeholder = { Text("说点什么…", color = Color(0xFFB0AABD)) },
                             maxLines = 4,
-                            shape = RoundedCornerShape(22.dp),
+                            shape = RoundedCornerShape(24.dp),
                             colors = TextFieldDefaults.colors(
-                                focusedContainerColor = Color(0xFFF7F5FB),
-                                unfocusedContainerColor = Color(0xFFF7F5FB),
-                                disabledContainerColor = Color(0xFFF7F5FB),
+                                focusedContainerColor = Color(0xFFF6F3FB),
+                                unfocusedContainerColor = Color(0xFFF6F3FB),
+                                disabledContainerColor = Color(0xFFF6F3FB),
                                 focusedIndicatorColor = Color.Transparent,
                                 unfocusedIndicatorColor = Color.Transparent,
                                 disabledIndicatorColor = Color.Transparent,
@@ -960,13 +955,8 @@ private fun ChatScreen(
 
 @Composable
 private fun HeaderAction(icon: ImageVector, onClick: () -> Unit) {
-    Surface(
-        shape = CircleShape,
-        color = Color(0xFFF5F2FC),
-    ) {
-        IconButton(onClick = onClick, modifier = Modifier.size(38.dp)) {
-            Icon(icon, contentDescription = null, tint = Color(0xFF6C5CE7), modifier = Modifier.size(19.dp))
-        }
+    IconButton(onClick = onClick, modifier = Modifier.size(36.dp)) {
+        Icon(icon, contentDescription = null, tint = Color(0xFF8D84A8), modifier = Modifier.size(19.dp))
     }
 }
 
@@ -977,24 +967,19 @@ private fun ComposerAction(
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
-    Surface(
-        shape = CircleShape,
-        color = if (enabled) Color(0xFFF5F2FC) else Color(0xFFF0EEF4),
-        modifier = Modifier.size(38.dp),
+    Box(
+        modifier = Modifier
+            .size(36.dp)
+            .clip(CircleShape)
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center,
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .clickable(enabled = enabled, onClick = onClick),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                icon,
-                contentDescription = label,
-                tint = if (enabled) Color(0xFF6C5CE7) else Color(0xFFB8B3C4),
-                modifier = Modifier.size(19.dp),
-            )
-        }
+        Icon(
+            icon,
+            contentDescription = label,
+            tint = if (enabled) Color(0xFF8D84A8) else Color(0xFFC9C5D1),
+            modifier = Modifier.size(20.dp),
+        )
     }
 }
 
@@ -1674,7 +1659,7 @@ private fun SegmentedMessage(
         Text(
             label,
             style = MaterialTheme.typography.labelSmall,
-            color = Color(0xFF8A8A8A),
+            color = Color(0xFF9A94A6),
             modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
         )
         segments.take(visibleCount.coerceAtMost(segments.size)).forEach { segment ->
@@ -1683,20 +1668,20 @@ private fun SegmentedMessage(
                     Surface(
                         modifier = Modifier.widthIn(max = 300.dp),
                         shape = RoundedCornerShape(
-                            topStart = 4.dp,
+                            topStart = 6.dp,
                             topEnd = 18.dp,
                             bottomEnd = 18.dp,
                             bottomStart = 18.dp,
                         ),
                         color = Color.White,
-                        border = BorderStroke(1.dp, Color(0x14000000)),
-                        shadowElevation = 0.dp,
+                        border = BorderStroke(1.dp, Color(0x0F000000)),
+                        shadowElevation = 1.dp,
                     ) {
                         Text(
-                            segment.text,
-                            modifier = Modifier.padding(horizontal = 13.dp, vertical = 10.dp),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = Color(0xFF1F1F1F),
+                            replaceFaceMarkers(segment.text),
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
+                            style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 21.sp),
+                            color = Color(0xFF26232E),
                         )
                     }
                 }
@@ -1975,20 +1960,20 @@ private fun StreamingBubble(text: String, onReveal: () -> Unit) {
                         Surface(
                             modifier = Modifier.widthIn(max = 300.dp),
                             shape = RoundedCornerShape(
-                                topStart = 4.dp,
+                                topStart = 6.dp,
                                 topEnd = 18.dp,
                                 bottomEnd = 18.dp,
                                 bottomStart = 18.dp,
                             ),
                             color = Color.White,
-                            border = BorderStroke(1.dp, Color(0x14000000)),
-                            shadowElevation = 0.dp,
+                            border = BorderStroke(1.dp, Color(0x0F000000)),
+                            shadowElevation = 1.dp,
                         ) {
                             Text(
-                                segment.text,
-                                modifier = Modifier.padding(horizontal = 13.dp, vertical = 10.dp),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = Color(0xFF1F1F1F),
+                                replaceFaceMarkers(segment.text),
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
+                                style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 21.sp),
+                                color = Color(0xFF26232E),
                             )
                         }
                     }
@@ -2080,13 +2065,13 @@ private fun PendingBubble(
             }
             Surface(
                 modifier = Modifier.widthIn(max = 300.dp),
-                shape = RoundedCornerShape(topStart = 18.dp, topEnd = 4.dp, bottomEnd = 18.dp, bottomStart = 18.dp),
-                color = Color(0xFFE8E0FA),
+                shape = RoundedCornerShape(topStart = 18.dp, topEnd = 6.dp, bottomEnd = 18.dp, bottomStart = 18.dp),
+                color = Color(0xFFEDE6FF),
             ) {
-                Column(modifier = Modifier.padding(horizontal = 13.dp, vertical = 10.dp)) {
+                Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp)) {
                     Text(
-                        stripBiliMeta(message.content),
-                        style = MaterialTheme.typography.bodyMedium,
+                        replaceFaceMarkers(stripBiliMeta(message.content)),
+                        style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 21.sp),
                         maxLines = 30,
                         overflow = TextOverflow.Ellipsis,
                         color = Color(0xFF1F1F1F),
@@ -2247,25 +2232,25 @@ private fun MessageBubble(
             Surface(
                 modifier = Modifier.widthIn(max = 300.dp),
                 shape = if (isUser) {
-                    RoundedCornerShape(topStart = 18.dp, topEnd = 4.dp, bottomEnd = 18.dp, bottomStart = 18.dp)
+                    RoundedCornerShape(topStart = 18.dp, topEnd = 6.dp, bottomEnd = 18.dp, bottomStart = 18.dp)
                 } else {
-                    RoundedCornerShape(topStart = 4.dp, topEnd = 18.dp, bottomEnd = 18.dp, bottomStart = 18.dp)
+                    RoundedCornerShape(topStart = 6.dp, topEnd = 18.dp, bottomEnd = 18.dp, bottomStart = 18.dp)
                 },
-                color = if (isUser) Color(0xFFEDE7FF) else Color.White,
-                border = if (isUser) BorderStroke(1.dp, Color(0x1A6C5CE7)) else BorderStroke(1.dp, Color(0x14000000)),
-                shadowElevation = 0.dp,
+                color = if (isUser) Color(0xFFEDE6FF) else Color.White,
+                border = if (isUser) BorderStroke(1.dp, Color(0x186C5CE7)) else BorderStroke(1.dp, Color(0x0F000000)),
+                shadowElevation = 1.dp,
             ) {
                 Column(
-                    modifier = Modifier.padding(horizontal = 13.dp, vertical = 10.dp),
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     if (bodyText.isNotEmpty()) {
                         Text(
-                            bodyText,
-                            style = MaterialTheme.typography.bodyMedium,
+                            replaceFaceMarkers(bodyText),
+                            style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 21.sp),
                             maxLines = if (expanded || !isLongText) 30 else 8,
                             overflow = TextOverflow.Ellipsis,
-                            color = Color(0xFF1F1F1F),
+                            color = Color(0xFF26232E),
                         )
                     }
                     if (fileMatch != null) {

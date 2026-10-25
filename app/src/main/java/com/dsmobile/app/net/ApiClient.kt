@@ -21,6 +21,13 @@ import java.util.concurrent.TimeUnit
 
 data class EventPage(val messages: List<MessageEntity>, val latestId: Long, val hasMore: Boolean)
 
+data class ProactivePush(
+    val queueId: Int,
+    val content: String,
+    val messageId: Long?,
+    val createdAt: String,
+)
+
 data class BiliPreview(
     val title: String,
     val owner: String,
@@ -89,6 +96,65 @@ class ApiClient(
             }
         }
 
+    /** App 心跳：让 Worker 知道移动端在线，避免误报通道掉线。 */
+    suspend fun heartbeat(version: String = "ds-mobile") = withContext(Dispatchers.IO) {
+        val body = JSONObject()
+            .put("connected", true)
+            .put("version", version)
+        val request = Request.Builder()
+            .url("$baseUrl/api/app/heartbeat")
+            .header("Authorization", "Bearer ${requireToken()}")
+            .post(body.toString().toRequestBody(jsonType))
+            .build()
+        execute(request).use { response ->
+            if (!response.isSuccessful) {
+                throw ApiException(errorText(response.code, response.body?.string().orEmpty()))
+            }
+        }
+    }
+
+    /** App 拉主动消息队列：先本地通知，再 ACK 清队列。 */
+    suspend fun proactivePending(limit: Int = 20): List<ProactivePush> = withContext(Dispatchers.IO) {
+        val request = Request.Builder()
+            .url("$baseUrl/api/proactive/pending?limit=$limit")
+            .header("Authorization", "Bearer ${requireToken()}")
+            .get()
+            .build()
+        execute(request).use { response ->
+            val text = response.body?.string().orEmpty()
+            if (!response.isSuccessful) throw ApiException(errorText(response.code, text))
+            val rows = JSONObject(text).optJSONArray("messages") ?: JSONArray()
+            buildList {
+                for (i in 0 until rows.length()) {
+                    val row = rows.optJSONObject(i) ?: continue
+                    val id = row.optLong("id", 0L)
+                    if (id <= 0L) continue
+                    add(
+                        ProactivePush(
+                            queueId = id.toInt(),
+                            content = row.optString("content"),
+                            messageId = if (row.isNull("message_id")) null else row.optLong("message_id"),
+                            createdAt = row.optString("created_at"),
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    suspend fun proactiveAck(ids: List<Int>) = withContext(Dispatchers.IO) {
+        if (ids.isEmpty()) return@withContext
+        val body = JSONObject().put("ids", JSONArray(ids))
+        val request = Request.Builder()
+            .url("$baseUrl/api/proactive/ack")
+            .header("Authorization", "Bearer ${requireToken()}")
+            .post(body.toString().toRequestBody(jsonType))
+            .build()
+        execute(request).use { response ->
+            if (!response.isSuccessful) throw ApiException(errorText(response.code, response.body?.string().orEmpty()))
+        }
+    }
+
     suspend fun events(afterId: Long, limit: Int = 100, latest: Boolean = false): EventPage =
         withContext(Dispatchers.IO) {
             val suffix = if (latest) "&latest=1" else ""
@@ -127,6 +193,7 @@ class ApiClient(
         val body = JSONObject()
             .put("messages", messages)
             .put("stream", false)
+            .put("inject_history", true)
         if (!clientMessageId.isNullOrBlank()) body.put("client_message_id", clientMessageId)
         val bodyText = body.toString()
         val request = Request.Builder()
@@ -160,6 +227,7 @@ class ApiClient(
             val body = JSONObject()
                 .put("messages", messages)
                 .put("stream", true)
+                .put("inject_history", true)
             if (!clientMessageId.isNullOrBlank()) body.put("client_message_id", clientMessageId)
             val bodyText = body.toString()
             val request = Request.Builder()
@@ -269,7 +337,10 @@ class ApiClient(
             )
         }
         val messages = JSONArray().put(JSONObject().put("role", "user").put("content", parts))
-        val body = JSONObject().put("messages", messages).put("stream", false)
+        val body = JSONObject()
+            .put("messages", messages)
+            .put("stream", false)
+            .put("inject_history", true)
         if (!clientMessageId.isNullOrBlank()) body.put("client_message_id", clientMessageId)
         val request = Request.Builder()
             .url("$baseUrl/v1/chat/completions")
