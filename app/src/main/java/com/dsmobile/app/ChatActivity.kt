@@ -82,6 +82,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.draw.shadow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -783,7 +784,9 @@ private fun ChatScreen(
             .fillMaxSize()
             .background(
                 Brush.verticalGradient(
-                    listOf(Color(0xFFFCFAFF), Color(0xFFF4F2F8)),
+                    0f to Color(0xFFFDFBFF),
+                    0.35f to Color(0xFFF7F4FE),
+                    1f to Color(0xFFF0EEF8),
                 ),
             )
             .statusBarsPadding()
@@ -801,9 +804,15 @@ private fun ChatScreen(
                 Box(
                     modifier = Modifier
                         .size(42.dp)
+                        .shadow(
+                            8.dp,
+                            CircleShape,
+                            spotColor = Color(0x336C5CE7),
+                            ambientColor = Color(0x14000000),
+                        )
                         .clip(CircleShape)
                         .background(Color(0xFFF0ECFF))
-                        .border(1.dp, Color(0x1F6C5CE7), CircleShape),
+                        .border(1.dp, Color(0x226C5CE7), CircleShape),
                     contentAlignment = Alignment.Center,
                 ) {
                     Image(
@@ -931,11 +940,12 @@ private fun ChatScreen(
             )
         }
         Surface(
-            color = Color.White,
-            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-            shadowElevation = 8.dp,
+            color = Color(0xFFFDFCFF),
+            shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+            border = BorderStroke(1.dp, Color(0x0F6C5CE7)),
+            shadowElevation = 12.dp,
         ) {
-            Column(Modifier.padding(horizontal = 14.dp, vertical = 9.dp)) {
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
                 if (voiceMode) {
                     VoiceComposer(
                         recording = recording,
@@ -956,23 +966,41 @@ private fun ChatScreen(
                         TextField(
                             value = input,
                             onValueChange = { input = it },
-                            modifier = Modifier.weight(1f),
-                            placeholder = { Text("说点什么…", color = Color(0xFFB0AABD)) },
+                            modifier = Modifier
+                                .weight(1f)
+                                .shadow(
+                                    5.dp,
+                                    RoundedCornerShape(26.dp),
+                                    spotColor = Color(0x1A6C5CE7),
+                                    ambientColor = Color(0x0D000000),
+                                ),
+                            textStyle = MaterialTheme.typography.bodyLarge.copy(
+                                lineHeight = 22.sp,
+                                color = Color(0xFF26232E),
+                            ),
+                            placeholder = { Text("说点什么…", color = Color(0xFFB3ADC2)) },
                             maxLines = 4,
-                            shape = RoundedCornerShape(24.dp),
+                            shape = RoundedCornerShape(26.dp),
                             colors = TextFieldDefaults.colors(
-                                focusedContainerColor = Color(0xFFF6F3FB),
-                                unfocusedContainerColor = Color(0xFFF6F3FB),
-                                disabledContainerColor = Color(0xFFF6F3FB),
+                                focusedContainerColor = Color(0xFFF8F6FD),
+                                unfocusedContainerColor = Color(0xFFF8F6FD),
+                                disabledContainerColor = Color(0xFFF8F6FD),
                                 focusedIndicatorColor = Color.Transparent,
                                 unfocusedIndicatorColor = Color.Transparent,
                                 disabledIndicatorColor = Color.Transparent,
+                                cursorColor = Color(0xFF6C5CE7),
                             ),
                         )
                         Spacer(Modifier.width(7.dp))
                         Box(
                             modifier = Modifier
-                                .size(46.dp)
+                                .size(48.dp)
+                                .shadow(
+                                    8.dp,
+                                    CircleShape,
+                                    spotColor = Color(0x3D7C5CFF),
+                                    ambientColor = Color(0x14000000),
+                                )
                                 .clip(CircleShape)
                                 .background(
                                     if (!busy && input.isNotBlank()) {
@@ -981,7 +1009,7 @@ private fun ChatScreen(
                                         )
                                     } else {
                                         Brush.linearGradient(
-                                            listOf(Color(0xFFE8E5EF), Color(0xFFE8E5EF)),
+                                            listOf(Color(0xFFE9E6F2), Color(0xFFE9E6F2)),
                                         )
                                     },
                                 )
@@ -1071,18 +1099,32 @@ private fun ComposerAction(
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
-    Box(
+    Column(
         modifier = Modifier
-            .size(36.dp)
-            .clip(CircleShape)
+            .width(58.dp)
             .clickable(enabled = enabled, onClick = onClick),
-        contentAlignment = Alignment.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Icon(
-            icon,
-            contentDescription = label,
-            tint = if (enabled) Color(0xFF8D84A8) else Color(0xFFC9C5D1),
-            modifier = Modifier.size(20.dp),
+        Box(
+            modifier = Modifier
+                .size(38.dp)
+                .clip(CircleShape)
+                .background(if (enabled) Color(0xFFF3EFFD) else Color(0xFFF1EFF5)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                icon,
+                contentDescription = label,
+                tint = if (enabled) Color(0xFF6C5CE7) else Color(0xFFC3BED0),
+                modifier = Modifier.size(20.dp),
+            )
+        }
+        Spacer(Modifier.height(2.dp))
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = if (enabled) Color(0xFF8A82A3) else Color(0xFFB9B4C6),
+            maxLines = 1,
         )
     }
 }
@@ -1264,14 +1306,16 @@ private fun DayDivider(day: String) {
         horizontalArrangement = Arrangement.Center,
     ) {
         Surface(
-            shape = RoundedCornerShape(10.dp),
-            color = Color(0xFFFFFFFF).copy(alpha = 0.75f),
+            shape = RoundedCornerShape(12.dp),
+            color = Color(0xF7FFFFFF),
+            border = BorderStroke(1.dp, Color(0x0F6C5CE7)),
+            shadowElevation = 2.dp,
         ) {
             Text(
                 day,
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
                 style = MaterialTheme.typography.labelSmall,
-                color = Color(0xFF8A8A8A),
+                color = Color(0xFF8F89A0),
             )
         }
     }
@@ -1771,22 +1815,33 @@ private fun SegmentedMessage(
         segments.take(visibleCount.coerceAtMost(segments.size)).forEach { segment ->
             when (segment) {
                 is ChatSegment.Text -> if (segment.text.isNotBlank()) {
+                    val bubbleShape = RoundedCornerShape(
+                        topStart = 8.dp,
+                        topEnd = 20.dp,
+                        bottomEnd = 20.dp,
+                        bottomStart = 20.dp,
+                    )
                     Surface(
-                        modifier = Modifier.widthIn(max = 300.dp),
-                        shape = RoundedCornerShape(
-                            topStart = 6.dp,
-                            topEnd = 18.dp,
-                            bottomEnd = 18.dp,
-                            bottomStart = 18.dp,
-                        ),
+                        modifier = Modifier
+                            .widthIn(max = 316.dp)
+                            .shadow(
+                                9.dp,
+                                bubbleShape,
+                                spotColor = Color(0x1F6C5CE7),
+                                ambientColor = Color(0x0F000000),
+                            ),
+                        shape = bubbleShape,
                         color = Color.White,
-                        border = BorderStroke(1.dp, Color(0x0F000000)),
-                        shadowElevation = 1.dp,
+                        border = BorderStroke(1.dp, Color(0x126C5CE7)),
+                        shadowElevation = 0.dp,
                     ) {
                         Text(
                             replaceFaceMarkers(segment.text),
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
-                            style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 21.sp),
+                            modifier = Modifier.padding(horizontal = 15.dp, vertical = 12.dp),
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                lineHeight = 22.sp,
+                                letterSpacing = 0.15.sp,
+                            ),
                             color = Color(0xFF26232E),
                         )
                     }
@@ -1815,15 +1870,21 @@ private fun VoiceMessageBubble(text: String, onPlay: () -> Unit) {
             Surface(
                 modifier = Modifier
                     .width(width)
+                    .shadow(
+                        8.dp,
+                        RoundedCornerShape(20.dp),
+                        spotColor = Color(0x1F6C5CE7),
+                        ambientColor = Color(0x0D000000),
+                    )
                     .clip(RoundedCornerShape(20.dp))
                     .clickable { onPlay() },
                 shape = RoundedCornerShape(20.dp),
                 color = Color.White,
-                border = BorderStroke(1.dp, Color(0x14000000)),
+                border = BorderStroke(1.dp, Color(0x126C5CE7)),
                 shadowElevation = 0.dp,
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                    modifier = Modifier.padding(horizontal = 13.dp, vertical = 9.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Surface(
@@ -2063,22 +2124,33 @@ private fun StreamingBubble(text: String, onReveal: () -> Unit) {
                 .take(visibleCount.coerceAtMost(segments.size))
                 .forEach { segment ->
                     if (segment.text.isNotBlank()) {
+                        val bubbleShape = RoundedCornerShape(
+                            topStart = 8.dp,
+                            topEnd = 20.dp,
+                            bottomEnd = 20.dp,
+                            bottomStart = 20.dp,
+                        )
                         Surface(
-                            modifier = Modifier.widthIn(max = 300.dp),
-                            shape = RoundedCornerShape(
-                                topStart = 6.dp,
-                                topEnd = 18.dp,
-                                bottomEnd = 18.dp,
-                                bottomStart = 18.dp,
-                            ),
+                            modifier = Modifier
+                                .widthIn(max = 316.dp)
+                                .shadow(
+                                    9.dp,
+                                    bubbleShape,
+                                    spotColor = Color(0x1F6C5CE7),
+                                    ambientColor = Color(0x0F000000),
+                                ),
+                            shape = bubbleShape,
                             color = Color.White,
-                            border = BorderStroke(1.dp, Color(0x0F000000)),
-                            shadowElevation = 1.dp,
+                            border = BorderStroke(1.dp, Color(0x126C5CE7)),
+                            shadowElevation = 0.dp,
                         ) {
                             Text(
                                 replaceFaceMarkers(segment.text),
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
-                                style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 21.sp),
+                                modifier = Modifier.padding(horizontal = 15.dp, vertical = 12.dp),
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    lineHeight = 22.sp,
+                                    letterSpacing = 0.15.sp,
+                                ),
                                 color = Color(0xFF26232E),
                             )
                         }
@@ -2169,18 +2241,36 @@ private fun PendingBubble(
                 ReadStatus(failed = true)
                 Spacer(Modifier.width(4.dp))
             }
+            val bubbleShape = RoundedCornerShape(
+                topStart = 20.dp,
+                topEnd = 8.dp,
+                bottomEnd = 20.dp,
+                bottomStart = 20.dp,
+            )
             Surface(
-                modifier = Modifier.widthIn(max = 300.dp),
-                shape = RoundedCornerShape(topStart = 18.dp, topEnd = 6.dp, bottomEnd = 18.dp, bottomStart = 18.dp),
-                color = Color(0xFFEDE6FF),
+                modifier = Modifier
+                    .widthIn(max = 316.dp)
+                    .shadow(
+                        9.dp,
+                        bubbleShape,
+                        spotColor = Color(0x2A6C5CE7),
+                        ambientColor = Color(0x0F000000),
+                    ),
+                shape = bubbleShape,
+                color = Color(0xFFEDE7FF),
+                border = BorderStroke(1.dp, Color(0x226C5CE7)),
+                shadowElevation = 0.dp,
             ) {
-                Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp)) {
+                Column(modifier = Modifier.padding(horizontal = 15.dp, vertical = 12.dp)) {
                     Text(
                         replaceFaceMarkers(stripBiliMeta(message.content)),
-                        style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 21.sp),
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            lineHeight = 22.sp,
+                            letterSpacing = 0.15.sp,
+                        ),
                         maxLines = 30,
                         overflow = TextOverflow.Ellipsis,
-                        color = Color(0xFF1F1F1F),
+                        color = Color(0xFF26232E),
                     )
                     if (failed) {
                         TextButton(onClick = onRetry, enabled = !busy) { Text("重试") }
@@ -2335,25 +2425,36 @@ private fun MessageBubble(
                 ReadStatus(failed = false)
                 Spacer(Modifier.width(4.dp))
             }
+            val bubbleShape = if (isUser) {
+                RoundedCornerShape(topStart = 20.dp, topEnd = 8.dp, bottomEnd = 20.dp, bottomStart = 20.dp)
+            } else {
+                RoundedCornerShape(topStart = 8.dp, topEnd = 20.dp, bottomEnd = 20.dp, bottomStart = 20.dp)
+            }
             Surface(
-                modifier = Modifier.widthIn(max = 300.dp),
-                shape = if (isUser) {
-                    RoundedCornerShape(topStart = 18.dp, topEnd = 6.dp, bottomEnd = 18.dp, bottomStart = 18.dp)
-                } else {
-                    RoundedCornerShape(topStart = 6.dp, topEnd = 18.dp, bottomEnd = 18.dp, bottomStart = 18.dp)
-                },
-                color = if (isUser) Color(0xFFEDE6FF) else Color.White,
-                border = if (isUser) BorderStroke(1.dp, Color(0x186C5CE7)) else BorderStroke(1.dp, Color(0x0F000000)),
-                shadowElevation = 1.dp,
+                modifier = Modifier
+                    .widthIn(max = 316.dp)
+                    .shadow(
+                        9.dp,
+                        bubbleShape,
+                        spotColor = if (isUser) Color(0x2A6C5CE7) else Color(0x1F6C5CE7),
+                        ambientColor = Color(0x0F000000),
+                    ),
+                shape = bubbleShape,
+                color = if (isUser) Color(0xFFEDE7FF) else Color.White,
+                border = if (isUser) BorderStroke(1.dp, Color(0x226C5CE7)) else BorderStroke(1.dp, Color(0x126C5CE7)),
+                shadowElevation = 0.dp,
             ) {
                 Column(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
+                    modifier = Modifier.padding(horizontal = 15.dp, vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     if (bodyText.isNotEmpty()) {
                         Text(
                             replaceFaceMarkers(bodyText),
-                            style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 21.sp),
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                lineHeight = 22.sp,
+                                letterSpacing = 0.15.sp,
+                            ),
                             maxLines = if (expanded || !isLongText) 30 else 8,
                             overflow = TextOverflow.Ellipsis,
                             color = Color(0xFF26232E),
