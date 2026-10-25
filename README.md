@@ -51,7 +51,9 @@ adb shell am start -n com.dsmobile.app/.ChatActivity
 - SSE 流式回复；
 - `client_message_id` 幂等，超时重试不会重复落库；
 - 图片消息：相册选图、本地压缩、发送、R2 回放；
-- 文件解析：PDF/TXT 端到端通过；DOCX/XLSX/PPTX/ZIP 解析器自测通过；
+- 文件解析：PDF/TXT 端到端通过；DOCX/XLSX/PPTX/ZIP/7z 解析器自测通过；文件消息使用独立文件卡片显示；
+- 分享链接：B站卡片 + 摘要，普通网页/抖音卡片 + 摘要；
+- 视频/GIF：上传 R2，视频内嵌播放，GIF 动图播放；
 - 历史显示 Web/QQ/App 全部渠道；
 - 后台助手消息通知（`DS-Mobile 消息` 渠道）；
 - 重启后自动恢复服务并继续收通知；

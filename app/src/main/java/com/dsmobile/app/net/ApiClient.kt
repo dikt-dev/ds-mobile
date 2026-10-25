@@ -27,6 +27,13 @@ data class BiliPreview(
     val desc: String = "",
 )
 
+data class WebPreview(
+    val title: String,
+    val description: String,
+    val site: String,
+    val douyin: Boolean,
+)
+
 class ApiException(message: String) : Exception(message)
 
 class ApiClient(
@@ -280,6 +287,27 @@ class ApiClient(
             )
         }
     }.getOrNull()
+
+    suspend fun webPreview(url: String): WebPreview? = withContext(Dispatchers.IO) {
+        runCatching {
+            val encoded = java.net.URLEncoder.encode(url, "UTF-8")
+            val request = Request.Builder()
+                .url("$baseUrl/api/app/web-preview?url=$encoded")
+                .header("Authorization", "Bearer ${requireToken()}")
+                .get()
+                .build()
+            execute(request).use { response ->
+                if (!response.isSuccessful) return@runCatching null
+                val root = JSONObject(response.body?.string().orEmpty())
+                WebPreview(
+                    title = root.optString("title"),
+                    description = root.optString("description"),
+                    site = root.optString("site"),
+                    douyin = root.optBoolean("douyin"),
+                )
+            }
+        }.getOrNull()
+    }
 
     suspend fun uploadMedia(context: Context, uri: Uri): String = withContext(Dispatchers.IO) {
         val resolver = context.contentResolver

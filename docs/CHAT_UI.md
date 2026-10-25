@@ -64,7 +64,36 @@
 - `screenshot-chat-video2.png`
 - `screenshot-chat-gif.png`
 
-## 7. 输入区
+## 8. 网页 / 抖音
+
+- 普通网页链接渲染成「网页」卡片；
+- 抖音链接渲染成「抖音」卡片；
+- Worker 取标题/描述，随链接一起发给 AI；
+- 抓不到元数据时保留链接卡片兜底。
+
+截图：
+
+- `screenshot-chat-web.png`
+
+## 9. 文件消息
+
+- 发送文件后不再把整段解析文本铺在聊天里；
+- 聊天记录显示文件卡片：文件名、大小、类型；
+- 「查看解析内容」可展开解析出的文本；
+- AI 仍收到完整文件正文；
+- 使用 `[文件:name|size|mime]` 标记做本地展示，避免内容重复。
+
+截图：
+
+- `screenshot-chat-file.png`
+
+## 10. 动图
+
+- 图片消息优先用 `ImageDecoder` 解码；
+- GIF/动态 WebP 用 `AnimatedImageDrawable` 播放；
+- 静态图片仍走同一 ImageView，保持 220dp 对齐。
+
+## 11. 输入区
 
 - 底栏白底 + 阴影；
 - 图片/文件/语音按钮单独一行；
