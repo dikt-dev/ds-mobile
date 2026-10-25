@@ -1637,6 +1637,7 @@ private fun stripBiliMeta(text: String): String =
     text
         .replace(Regex("(?s)\\[BILI_META\\].*?\\[/BILI_META\\]"), "")
         .replace(Regex("(?s)\\[WEB_META\\].*?\\[/WEB_META\\]"), "")
+        .replace("[视频帧]", "")
         .trim()
 
 private fun webMetaText(preview: WebPreview, url: String): String = buildString {
