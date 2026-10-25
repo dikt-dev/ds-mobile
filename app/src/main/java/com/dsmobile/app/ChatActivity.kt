@@ -439,6 +439,7 @@ private fun ChatScreen(
                     message = message,
                     api = api,
                     onSpeak = { TtsManager.speak(context, settings, it) },
+                    onPrefetch = { TtsManager.prefetch(context, settings, it) },
                 )
             }
             items(pending, key = { "pending-${it.id}" }) { message ->
@@ -709,6 +710,7 @@ private fun MessageBubble(
     message: MessageEntity,
     api: ApiClient,
     onSpeak: (String) -> Unit,
+    onPrefetch: (String) -> Unit,
 ) {
     val isUser = message.role == "user"
     val channel = when (message.channel) {
@@ -727,6 +729,9 @@ private fun MessageBubble(
     val isVoice = !isUser && voiceMarkers.any { display.contains(it) }
     voiceMarkers.forEach { display = display.replace(it, "") }
     display = display.trim()
+    LaunchedEffect(isVoice, display) {
+        if (isVoice && display.isNotEmpty()) onPrefetch(display)
+    }
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
