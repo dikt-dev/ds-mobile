@@ -4,11 +4,21 @@
 
 ## 1. 抽出的帧
 
-手机端从 B 站 storyboard 的 10×10 拼图中取中间格，原尺寸 480×270，转 JPEG 后作为 `image_url` 发给模型：
+按原来的方案：9 帧拼成 3×3 网格，另附 2 张关键帧。
 
-![B站抽帧](bili-frame-sent.jpg)
+3×3 网格：
 
-这是视频中“还在为祖先们的不良使用记录”那一帧，和 AI 回复里提到截图内容一致。
+![B站抽帧网格](bili-ai-grid.jpg)
+
+关键帧 1：
+
+![关键帧1](bili-ai-key1.jpg)
+
+关键帧 2：
+
+![关键帧2](bili-ai-key2.jpg)
+
+网格每格左上角有编号，方便模型按时间顺序理解；关键帧从 9 格里选亮度/信息量最高的两张，避开纯黑转场。
 
 ## 2. 文本上下文
 
@@ -44,7 +54,9 @@ UP主：你好与那啥
       "role": "user",
       "content": [
         { "type": "text", "text": "上面的 URL + [BILI_META] 文本" },
-        { "type": "image_url", "image_url": { "url": "data:image/jpeg;base64,..." } }
+        { "type": "image_url", "image_url": { "url": "data:image/jpeg;base64,... 3x3 网格" } },
+        { "type": "image_url", "image_url": { "url": "data:image/jpeg;base64,... 关键帧1" } },
+        { "type": "image_url", "image_url": { "url": "data:image/jpeg;base64,... 关键帧2" } }
       ]
     }
   ]
@@ -55,7 +67,8 @@ UP主：你好与那啥
 
 1. 原始分享文字；
 2. B 站标题、UP、时长、官方总结、大纲、字幕节选；
-3. 一张真实视频帧。
+3. 一张 3×3 抽帧网格；
+4. 两张关键帧原图。
 
 AI 回复示例：
 

@@ -219,14 +219,22 @@ class ApiClient(
         text: String,
         dataUrl: String,
         clientMessageId: String? = null,
+    ): String = chatWithImages(text, listOf(dataUrl), clientMessageId)
+
+    suspend fun chatWithImages(
+        text: String,
+        dataUrls: List<String>,
+        clientMessageId: String? = null,
     ): String = withContext(Dispatchers.IO) {
         val parts = JSONArray()
         if (text.isNotBlank()) parts.put(JSONObject().put("type", "text").put("text", text))
-        parts.put(
-            JSONObject()
-                .put("type", "image_url")
-                .put("image_url", JSONObject().put("url", dataUrl)),
-        )
+        dataUrls.filter { it.startsWith("data:image/") }.forEach { url ->
+            parts.put(
+                JSONObject()
+                    .put("type", "image_url")
+                    .put("image_url", JSONObject().put("url", url)),
+            )
+        }
         val messages = JSONArray().put(JSONObject().put("role", "user").put("content", parts))
         val body = JSONObject().put("messages", messages).put("stream", false)
         if (!clientMessageId.isNullOrBlank()) body.put("client_message_id", clientMessageId)

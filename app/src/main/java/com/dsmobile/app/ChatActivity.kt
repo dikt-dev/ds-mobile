@@ -350,19 +350,19 @@ private fun ChatScreen(
         val biliCookie = settings.biliCookie.ifBlank {
             if (settings.biliSessdata.isBlank()) "" else "SESSDATA=${settings.biliSessdata}"
         }
-        val frame = if (bili != null && bili.storyboardUrl.isNotBlank()) {
+        val frames = if (bili != null && bili.storyboardUrl.isNotBlank()) {
             status = "抽取B站视频帧…"
             runCatching {
-                BiliFrames.loadSingleFrame(
+                BiliFrames.loadAiFrames(
                     storyboardUrl = bili.storyboardUrl,
                     cols = bili.storyboardCols,
                     rows = bili.storyboardRows,
                     cookie = biliCookie,
                     cacheDir = context.cacheDir,
                 )
-            }.getOrNull()
+            }.getOrDefault(emptyList())
         } else {
-            null
+            emptyList()
         }
         val pendingMessage = PendingMessageEntity(
             content = outgoing,
@@ -370,14 +370,14 @@ private fun ChatScreen(
         )
         val pendingId = dao.insertPending(pendingMessage)
         try {
-            if (frame != null) {
+            if (frames.isNotEmpty()) {
                 status = "发送视频帧…"
-                api.chatWithImage(
+                api.chatWithImages(
                     outgoing,
-                    bitmapToDataUrl(frame),
+                    frames.map { bitmapToDataUrl(it) },
                     pendingMessage.clientMessageId,
                 )
-                frame.recycle()
+                frames.forEach { it.recycle() }
             } else {
                 api.chatStream(outgoing, pendingMessage.clientMessageId) { delta ->
                     withContext(Dispatchers.Main) {

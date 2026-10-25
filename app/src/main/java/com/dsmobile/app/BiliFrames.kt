@@ -56,6 +56,86 @@ object BiliFrames {
         }.getOrNull()
     }
 
+    /** 按旧方案：3×3 抽帧网格 + 2 张关键帧，一起发给 AI。 */
+    suspend fun loadAiFrames(
+        storyboardUrl: String,
+        cols: Int,
+        rows: Int,
+        cookie: String,
+        cacheDir: File?,
+    ): List<Bitmap> = withContext(Dispatchers.IO) {
+        if (storyboardUrl.isBlank() || cols <= 0 || rows <= 0) return@withContext emptyList()
+        val bytes = downloadBytes(storyboardUrl, cookie, cacheDir) ?: return@withContext emptyList()
+        val decoder = BitmapRegionDecoder.newInstance(ByteArrayInputStream(bytes), false)
+            ?: return@withContext emptyList()
+        try {
+            val cellW = decoder.width / cols
+            val cellH = decoder.height / rows
+            if (cellW <= 0 || cellH <= 0) return@withContext emptyList()
+            val total = cols * rows
+            val positions = (0 until 9).map { it * (total - 1) / 8 }
+            val grid = Bitmap.createBitmap(720, 405, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(grid)
+            canvas.drawColor(Color.BLACK)
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+            val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.WHITE
+                textSize = 18f
+                setShadowLayer(3f, 1f, 1f, Color.BLACK)
+            }
+            val candidates = mutableListOf<Bitmap>()
+            positions.forEachIndexed { i, tile ->
+                val col = tile % cols
+                val row = tile / cols
+                val frame = decoder.decodeRegion(
+                    Rect(col * cellW, row * cellH, (col + 1) * cellW, (row + 1) * cellH),
+                    BitmapFactory.Options(),
+                ) ?: return@forEachIndexed
+                val left = (i % 3) * 240f
+                val top = (i / 3) * 135f
+                canvas.drawBitmap(
+                    frame,
+                    null,
+                    android.graphics.RectF(left, top, left + 240f, top + 135f),
+                    paint,
+                )
+                canvas.drawText("${i + 1}", left + 6f, top + 22f, labelPaint)
+                candidates.add(frame)
+            }
+            val output = mutableListOf(grid)
+            // 关键帧不取固定位置，选亮度最高/信息最多的两张，避开纯黑转场。
+            val keyFrames = candidates
+                .map { it to brightnessScore(it) }
+                .sortedByDescending { it.second }
+                .take(2)
+                .map { it.first }
+            output.addAll(keyFrames)
+            candidates.forEach { if (it !in keyFrames) it.recycle() }
+            output
+        } catch (_: Exception) {
+            emptyList()
+        } finally {
+            decoder.recycle()
+        }
+    }
+
+    private fun brightnessScore(bitmap: Bitmap): Long {
+        var score = 0L
+        val stepX = (bitmap.width / 24).coerceAtLeast(1)
+        val stepY = (bitmap.height / 14).coerceAtLeast(1)
+        var y = 0
+        while (y < bitmap.height) {
+            var x = 0
+            while (x < bitmap.width) {
+                val c = bitmap.getPixel(x, y)
+                score += (c shr 16 and 0xFF) + (c shr 8 and 0xFF) + (c and 0xFF)
+                x += stepX
+            }
+            y += stepY
+        }
+        return score
+    }
+
     suspend fun load(
         cacheKey: String,
         storyboardUrl: String,
