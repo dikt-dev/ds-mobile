@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.IBinder
+import android.util.Base64
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
@@ -28,7 +29,10 @@ import org.apache.sshd.common.util.io.PathUtils
 import org.apache.sshd.common.util.security.SecurityProviderChoice
 import org.apache.sshd.common.util.security.SecurityUtils
 import org.apache.sshd.server.SshServer
+import org.apache.sshd.common.config.keys.AuthorizedKeyEntry
+import org.apache.sshd.common.config.keys.PublicKeyEntryResolver
 import org.apache.sshd.server.auth.password.PasswordAuthenticator
+import org.apache.sshd.server.auth.pubkey.PublickeyAuthenticator
 import org.apache.sshd.server.kex.DHGServer
 import org.apache.sshd.server.keyprovider.SimpleGeneratorHostKeyProvider
 import org.apache.sshd.sftp.server.SftpSubsystemFactory
@@ -115,15 +119,14 @@ class DebugSshService : Service() {
         try {
             // Android 没有 /home，MINA SSHD 启动前必须给它一个 home 解析器
             PathUtils.setUserHomeFolderResolver { filesDir.toPath() }
-            // Android 自带的 BC 版本较旧；优先用 AndroidOpenSSL(Conscrypt) 提供 SHA-256
+            // Android 自带 provider 对 MINA 的 RSA/EdDSA 支持不稳定；优先使用随包 BouncyCastle。
             runCatching {
-                val provider = Security.getProvider("AndroidOpenSSL")
-                    ?: Security.getProvider("Conscrypt")
-                if (provider != null) {
-                    SecurityUtils.setDefaultProviderChoice(
-                        SecurityProviderChoice.toSecurityProviderChoice(provider)
-                    )
-                }
+                val bc = org.bouncycastle.jce.provider.BouncyCastleProvider()
+                Security.removeProvider("BC")
+                Security.addProvider(bc)
+                SecurityUtils.setDefaultProviderChoice(
+                    SecurityProviderChoice.toSecurityProviderChoice(bc)
+                )
             }
             val server = SshServer.setUpDefaultServer()
             if (server.keyExchangeFactories.isNullOrEmpty()) {
@@ -141,13 +144,11 @@ class DebugSshService : Service() {
                 algorithm = "RSA"
                 keySize = 2048
             }
-            if (server.signatureFactories.isNullOrEmpty()) {
-                server.signatureFactories = listOf(
-                    BuiltinSignatures.rsaSHA256,
-                    BuiltinSignatures.rsaSHA512,
-                    BuiltinSignatures.rsa,
-                )
-            }
+            server.signatureFactories = listOf(
+                BuiltinSignatures.ed25519,
+                BuiltinSignatures.rsaSHA256,
+                BuiltinSignatures.rsa,
+            )
             if (server.cipherFactories.isNullOrEmpty()) {
                 server.cipherFactories = listOf(
                     BuiltinCiphers.aes128ctr,
@@ -171,8 +172,29 @@ class DebugSshService : Service() {
                     "cipher=${server.cipherFactories?.joinToString { it.name }} " +
                     "mac=${server.macFactories?.joinToString { it.name }}",
             )
-            server.passwordAuthenticator = PasswordAuthenticator { username, pass, _ ->
-                username == USERNAME && pass == password
+            val authorizedKeysFile = File(filesDir, "authorized_keys")
+            val authorizedKeys = if (authorizedKeysFile.isFile) {
+                runCatching {
+                    AuthorizedKeyEntry.readAuthorizedKeys(authorizedKeysFile.toPath())
+                        .mapNotNull { entry ->
+                            entry.resolvePublicKey(null, PublicKeyEntryResolver.IGNORING)
+                        }
+                }.onFailure { Log.w(TAG, "read authorized_keys failed: ${it.message}") }
+                    .getOrDefault(emptyList())
+            } else {
+                emptyList()
+            }
+            if (authorizedKeys.isNotEmpty()) {
+                server.passwordAuthenticator = PasswordAuthenticator { _, _, _ -> false }
+                server.publickeyAuthenticator = PublickeyAuthenticator { username, key, _ ->
+                    username == USERNAME && authorizedKeys.any { it == key }
+                }
+                Log.i(TAG, "auth=publickey keys=${authorizedKeys.size}")
+            } else {
+                server.passwordAuthenticator = PasswordAuthenticator { username, pass, _ ->
+                    username == USERNAME && pass == password
+                }
+                Log.i(TAG, "auth=password")
             }
             server.subsystemFactories = listOf(SftpSubsystemFactory())
             server.fileSystemFactory = VirtualFileSystemFactory(filesDir.toPath())
@@ -215,6 +237,31 @@ class DebugSshService : Service() {
             Log.w(TAG, "localIp failed", e)
         }
         return "未知"
+    }
+
+    /** 解析 Ed25519 authorized_keys，转成 Java X.509 DER 和 MINA key.encoded 比较。 */
+    private fun parseAuthorizedKey(line: String): ByteArray? {
+        val parts = line.trim().split(Regex("\\s+"))
+        if (parts.size < 2 || parts[0] != "ssh-ed25519") return null
+        val blob = runCatching { Base64.decode(parts[1], Base64.DEFAULT) }.getOrNull() ?: return null
+        if (blob.size < 8) return null
+        fun intAt(pos: Int): Int =
+            ((blob[pos].toInt() and 0xFF) shl 24) or
+                ((blob[pos + 1].toInt() and 0xFF) shl 16) or
+                ((blob[pos + 2].toInt() and 0xFF) shl 8) or
+                (blob[pos + 3].toInt() and 0xFF)
+        val typeLen = intAt(0)
+        if (typeLen <= 0 || 4 + typeLen + 4 > blob.size) return null
+        if (String(blob, 4, typeLen, Charsets.UTF_8) != "ssh-ed25519") return null
+        val keyPos = 4 + typeLen
+        val keyLen = intAt(keyPos)
+        if (keyLen != 32 || keyPos + 4 + keyLen > blob.size) return null
+        val der = ByteArray(12 + 32)
+        byteArrayOf(
+            0x30, 0x2A, 0x30, 0x05, 0x06, 0x03, 0x2B, 0x65, 0x70, 0x03, 0x21, 0x00,
+        ).copyInto(der)
+        blob.copyInto(der, 12, keyPos + 4, keyPos + 4 + 32)
+        return der
     }
 
     private fun createNotificationChannel() {

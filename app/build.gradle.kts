@@ -66,6 +66,7 @@ dependencies {
 
     implementation("org.apache.sshd:sshd-core:2.14.0")
     implementation("org.apache.sshd:sshd-sftp:2.14.0")
+    implementation("org.bouncycastle:bcprov-jdk15to18:1.78.1")
     implementation("org.slf4j:slf4j-simple:2.0.13")
     implementation("androidx.media3:media3-exoplayer:1.4.1")
     implementation("androidx.media3:media3-ui:1.4.1")
