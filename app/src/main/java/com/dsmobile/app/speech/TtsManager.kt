@@ -71,6 +71,16 @@ object TtsManager {
         }
     }
 
+    /** 先把语音合成好，慢一点没关系，等分段输出前用。 */
+    suspend fun prepare(context: Context, settings: SettingsStore, text: String): Boolean {
+        val clean = text.trim()
+        if (clean.isEmpty() || settings.azureKey.isBlank()) return true
+        return runCatching {
+            ensureAudio(context, settings, clean)
+            true
+        }.getOrDefault(false)
+    }
+
     private suspend fun ensureAudio(
         context: Context,
         settings: SettingsStore,

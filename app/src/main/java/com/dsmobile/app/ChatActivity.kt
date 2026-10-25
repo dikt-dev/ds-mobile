@@ -25,6 +25,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateContentSize
 import androidx.core.content.ContextCompat
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
@@ -323,14 +324,14 @@ private fun ChatScreen(
 
     suspend fun sendText(text: String) {
         busy = true
-        status = "发送中…"
+        // 不显示“发送中”，等待期间只显示正在输入状态。
+        status = "等待回复…"
         streamingText = ""
         val biliUrl = Regex(
             """https?://(?:b23\.tv|(?:www\.)?bilibili\.com)/[^\s，。！？)]+""",
             RegexOption.IGNORE_CASE,
         ).find(text)?.value
         val bili = if (biliUrl != null) {
-            status = "解析B站视频…"
             runCatching { api.biliPreview(biliUrl) }.getOrNull()
         } else {
             null
@@ -341,7 +342,6 @@ private fun ChatScreen(
             null
         }
         val web = if (webUrl != null && bili == null) {
-            status = "解析网页…"
             runCatching { api.webPreview(webUrl) }.getOrNull()
         } else {
             null
@@ -355,7 +355,6 @@ private fun ChatScreen(
             if (settings.biliSessdata.isBlank()) "" else "SESSDATA=${settings.biliSessdata}"
         }
         val frames = if (bili != null && bili.storyboardUrl.isNotBlank()) {
-            status = "抽取B站视频帧…"
             runCatching {
                 BiliFrames.loadAiFrames(
                     storyboardUrl = bili.storyboardUrl,
@@ -374,29 +373,31 @@ private fun ChatScreen(
         )
         val pendingId = dao.insertPending(pendingMessage)
         try {
-            if (frames.isNotEmpty()) {
-                status = "发送视频帧…"
+            // 非流式等待完整回复，避免一边输出一边重排；语音先合成，再让消息进入列表逐句展示。
+            val reply = if (frames.isNotEmpty()) {
                 api.chatWithImages(
                     outgoing,
                     frames.map { bitmapToDataUrl(it) },
                     pendingMessage.clientMessageId,
                     transient = true,
-                )
-                frames.forEach { it.recycle() }
-            } else {
-                api.chatStream(outgoing, pendingMessage.clientMessageId) { delta ->
-                    withContext(Dispatchers.Main) {
-                        streamingText += delta
-                        status = "接收中…"
-                    }
+                ).also {
+                    frames.forEach { bmp -> bmp.recycle() }
                 }
+            } else {
+                api.chat(outgoing, pendingMessage.clientMessageId)
             }
+            val voices = parseChatSegments(reply)
+                .filterIsInstance<ChatSegment.Voice>()
+                .map { it.text }
+                .distinct()
+            voices.forEach { TtsManager.prepare(context, settings, it) }
             dao.deletePending(pendingMessage.copy(id = pendingId))
-            delay(300)
+            delay(100)
             syncEvents()
             streamingText = ""
             status = ""
         } catch (e: Exception) {
+            frames.forEach { it.recycle() }
             status = "发送失败：${e.message}，可在下方重试"
             streamingText = ""
         } finally {
@@ -571,6 +572,7 @@ private fun ChatScreen(
     }
     val scrollToLatest: () -> Unit = {
         scope.launch {
+            delay(120)
             val count = messages.size + pending.size + if (streamingText.isNotEmpty() || isTyping) 1 else 0
             if (count > 0 && !listState.isScrollInProgress) {
                 listState.animateScrollToItem(count)
@@ -689,7 +691,7 @@ private fun ChatScreen(
                 Spacer(Modifier.height(1.dp))
             }
         }
-        if (status.isNotEmpty()) {
+        if (status.contains("失败")) {
             Text(
                 status,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
@@ -1400,7 +1402,7 @@ private fun SegmentedMessage(
         }
     }
     Column(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().animateContentSize(),
         verticalArrangement = Arrangement.spacedBy(7.dp),
     ) {
         Text(
@@ -1770,7 +1772,7 @@ private fun PendingBubble(
         horizontalAlignment = Alignment.End,
     ) {
         Text(
-            "我 · App · 待发送",
+            "我 · App",
             style = MaterialTheme.typography.labelSmall,
             color = Color(0xFF888888),
             modifier = Modifier.padding(end = 6.dp, bottom = 3.dp),
