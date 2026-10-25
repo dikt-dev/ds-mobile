@@ -10,7 +10,7 @@
 dist/DS-Mobile-0.1.0.apk
 ```
 
-- 大小：约 42.1 MB
+- 大小：约 41.5 MB
 - 签名：debug 签名（私人自用，不上架）
 - 安装：
 
@@ -21,7 +21,7 @@ adb install -r dist/DS-Mobile-0.1.0.apk
 - SHA-256：
 
 ```text
-E2E16FA184A892DA18ED2C6E18068F38DD67FE154CE9BF768835E0C6CAE919B8
+3590F8C4F1979B8691073B1330D8BC61322CCE21F969AE260754709489CEA0F1
 ```
 
 ## 已具备
@@ -32,14 +32,14 @@ E2E16FA184A892DA18ED2C6E18068F38DD67FE154CE9BF768835E0C6CAE919B8
 - B 站卡片、官方总结/字幕、3×3 抽帧 + 2 关键帧发给 AI；
 - PDF/TXT/DOCX/XLSX/PPTX/ZIP/7z 解析与文件卡片；
 - 前台服务、通知、开机自启；
-- SSH/SFTP 调试口（密码 + 30 分钟自动关闭）；
+- SSH/SFTP 调试口（密码或 RSA 公钥 + 30 分钟自动关闭）；
 - 本地媒体缓存（1GB / 1000 文件）；
 - 已读 / 失败状态、键盘贴底、逐句 1 秒输出。
 
 ## 已知缺口
 
-- Azure STT 已用内置中文 WAV 在 K60 验证；手机麦克风真实说话录音转写还差最后一次验收；
-- SSH 公钥登录因 MINA KEX 兼容问题暂未启用；
+- Azure STT 已用内置中文 WAV 和手机麦克风路径在 K60 验证；
+- SSH 公钥登录已支持 RSA；Ed25519 仍不兼容；
 - RAR 只验证了真实 RAR 能被读取，但样本只含旧 `.doc`，尚无 txt/Office RAR 通过样本；
 - 扫描 PDF OCR 未做；
 - QQ/Termux 尚未正式退役；
