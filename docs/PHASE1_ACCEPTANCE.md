@@ -21,7 +21,7 @@
 | 启动页 | ✅ `ChatActivity` 已设为 launcher；调试页收进「调试」按钮 |
 | 后台通知 | ✅ App 在后台收到助手消息时弹 `DS-Mobile 消息` 通知 |
 | 重启自启 | ✅ HyperOS 白名单配置后，重启自动启动服务并收到通知 |
-| 发送 outbox | ✅ 发送失败保留 `pending_messages`，气泡可重试 |
+| 发送 outbox | ✅ 断网发送保留气泡，恢复网络后重试成功 |
 | Token 存储 | ✅ EncryptedSharedPreferences（Keystore 主密钥），旧明文自动迁移 |
 | K60 实测 | ✅ 发送 `App test reply OK`，收到 AI 回复；后台通知测试成功 |
 
@@ -31,6 +31,8 @@
 - `screenshot-p1-final.png`：默认启动页
 - `screenshot-p1-notification.png`：后台消息通知
 - `screenshot-p1-secure.png`：加密存储迁移后的聊天页
+- `screenshot-p1-outbox-offline.png`：断网后“待发送/重试”
+- `screenshot-p1-outbox-retry2.png`：恢复网络重试成功
 
 ---
 
