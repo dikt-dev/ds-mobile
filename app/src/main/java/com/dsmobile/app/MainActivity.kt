@@ -39,6 +39,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import com.dsmobile.app.data.SettingsStore
+import com.dsmobile.app.net.ApiClient
 import com.dsmobile.app.parse.ParseSpike
 import com.dsmobile.app.service.DebugSshService
 import com.dsmobile.app.service.KeepAliveService
@@ -82,6 +84,8 @@ class MainActivity : ComponentActivity() {
         var sshIp by remember { mutableStateOf(DebugSshService.ip) }
         var parseRunning by remember { mutableStateOf(false) }
         var parseResult by remember { mutableStateOf("") }
+        var sttRunning by remember { mutableStateOf(false) }
+        var sttResult by remember { mutableStateOf("") }
         val scope = rememberCoroutineScope()
 
         LaunchedEffect(Unit) {
@@ -236,6 +240,39 @@ class MainActivity : ComponentActivity() {
                     }
                     if (parseResult.isNotEmpty()) {
                         Text(parseResult, style = MaterialTheme.typography.bodySmall)
+                    }
+                    Button(
+                        onClick = {
+                            if (!sttRunning) {
+                                sttRunning = true
+                                sttResult = "STT 测试中…"
+                                scope.launch {
+                                    try {
+                                        val settings = SettingsStore(this@MainActivity)
+                                        val api = ApiClient(
+                                            settings.baseUrl,
+                                            settings.token,
+                                            settings.biliSessdata,
+                                            settings.biliCookie,
+                                        )
+                                        val wav = assets.open("test/stt-test.wav").readBytes()
+                                        val text = api.stt(wav, settings.azureKey, settings.azureRegion)
+                                        sttResult = "STT: $text"
+                                    } catch (e: Exception) {
+                                        sttResult = "STT 失败：${e.message}"
+                                    } finally {
+                                        sttRunning = false
+                                    }
+                                }
+                            }
+                        },
+                        enabled = !sttRunning,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(if (sttRunning) "STT 测试中…" else "测试 Azure STT（内置语音）")
+                    }
+                    if (sttResult.isNotEmpty()) {
+                        Text(sttResult, style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
