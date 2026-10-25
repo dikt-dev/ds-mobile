@@ -1,4 +1,4 @@
-package com.dsmobile.app.speech
+﻿package com.dsmobile.app.speech
 
 import android.annotation.SuppressLint
 import android.media.AudioFormat
@@ -9,7 +9,7 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.concurrent.thread
 
-/** 16 kHz / 单声道 / PCM16 录音，停止时输出 Azure STT 可直接接收的 WAV。 */
+/** 16 kHz / mono / PCM16 recording; stop() returns WAV for Azure STT. */
 class VoiceRecorder {
     private val sampleRate = 16_000
     private var record: AudioRecord? = null
@@ -29,7 +29,7 @@ class VoiceRecorder {
         val bufferSize = maxOf(min * 2, sampleRate * 2)
         val recorder = runCatching {
             AudioRecord(
-                MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                MediaRecorder.AudioSource.MIC,
                 sampleRate,
                 AudioFormat.CHANNEL_IN_MONO,
                 AudioFormat.ENCODING_PCM_16BIT,
