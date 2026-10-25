@@ -867,42 +867,6 @@ private fun ChatScreen(
                 } else {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        ComposerAction(Icons.Filled.Photo, "图片", !busy) {
-                            imagePicker.launch(
-                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                            )
-                        }
-                        Spacer(Modifier.width(4.dp))
-                        ComposerAction(Icons.Filled.AttachFile, "文件", !busy) {
-                            val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                                addCategory(Intent.CATEGORY_OPENABLE)
-                                type = "*/*"
-                                putExtra(
-                                    DocumentsContract.EXTRA_INITIAL_URI,
-                                    Uri.parse(
-                                        "content://com.android.externalstorage.documents/document/primary%3ADownload"
-                                    ),
-                                )
-                            }
-                            filePicker.launch(intent)
-                        }
-                        Spacer(Modifier.width(4.dp))
-                        ComposerAction(Icons.Filled.Videocam, "视频", !busy) {
-                            videoPicker.launch(
-                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)
-                            )
-                        }
-                        Spacer(Modifier.width(4.dp))
-                        ComposerAction(Icons.Filled.Mic, "语音", !busy) {
-                            voiceMode = true
-                        }
-                        Spacer(Modifier.weight(1f))
-                    }
-                    Spacer(Modifier.height(6.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.Bottom,
                     ) {
                         TextField(
@@ -950,6 +914,39 @@ private fun ChatScreen(
                                 tint = if (!busy && input.isNotBlank()) Color.White else Color(0xFFAAA6B5),
                                 modifier = Modifier.size(21.dp),
                             )
+                        }
+                    }
+                    Spacer(Modifier.height(7.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        ComposerAction(Icons.Filled.Photo, "图片", !busy) {
+                            imagePicker.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                            )
+                        }
+                        ComposerAction(Icons.Filled.AttachFile, "文件", !busy) {
+                            val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                                addCategory(Intent.CATEGORY_OPENABLE)
+                                type = "*/*"
+                                putExtra(
+                                    DocumentsContract.EXTRA_INITIAL_URI,
+                                    Uri.parse(
+                                        "content://com.android.externalstorage.documents/document/primary%3ADownload"
+                                    ),
+                                )
+                            }
+                            filePicker.launch(intent)
+                        }
+                        ComposerAction(Icons.Filled.Videocam, "视频", !busy) {
+                            videoPicker.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)
+                            )
+                        }
+                        ComposerAction(Icons.Filled.Mic, "语音", !busy) {
+                            voiceMode = true
                         }
                     }
                 }
