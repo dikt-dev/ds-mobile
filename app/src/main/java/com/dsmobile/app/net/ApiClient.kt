@@ -16,6 +16,7 @@ import okio.BufferedSink
 import okio.source
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 import java.util.concurrent.TimeUnit
 
 data class EventPage(val messages: List<MessageEntity>, val latestId: Long, val hasMore: Boolean)
@@ -58,7 +59,9 @@ class ApiClient(
     private val token: String? = null,
     private val biliSessdata: String = "",
     private val biliCookie: String = "",
+    cacheDir: File? = null,
 ) {
+    private val diskCache = cacheDir?.let { MediaDiskCache(it) }
     private val jsonType = "application/json; charset=utf-8".toMediaType()
     private val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -195,6 +198,8 @@ class ApiClient(
         }
 
     suspend fun image(key: String): ByteArray = withContext(Dispatchers.IO) {
+        val cacheKey = "image:$key"
+        diskCache?.get(cacheKey)?.let { return@withContext it }
         val encoded = java.net.URLEncoder.encode(key, "UTF-8")
         val request = Request.Builder()
             .url("$baseUrl/api/app/image?key=$encoded")
@@ -204,6 +209,7 @@ class ApiClient(
         execute(request).use { response ->
             val bytes = response.body?.bytes() ?: ByteArray(0)
             if (!response.isSuccessful) throw ApiException(errorText(response.code, ""))
+            diskCache?.put(cacheKey, bytes)
             bytes
         }
     }
@@ -550,6 +556,8 @@ class ApiClient(
         "$baseUrl/api/app/media?key=${java.net.URLEncoder.encode(key, "UTF-8")}"
 
     suspend fun mediaBytes(key: String): ByteArray = withContext(Dispatchers.IO) {
+        val cacheKey = "media:$key"
+        diskCache?.get(cacheKey)?.let { return@withContext it }
         val request = Request.Builder()
             .url(mediaUrl(key))
             .header("Authorization", "Bearer ${requireToken()}")
@@ -557,7 +565,9 @@ class ApiClient(
             .build()
         execute(request).use { response ->
             if (!response.isSuccessful) throw ApiException("HTTP ${response.code}")
-            response.body?.bytes() ?: throw ApiException("媒体为空")
+            val bytes = response.body?.bytes() ?: throw ApiException("媒体为空")
+            diskCache?.put(cacheKey, bytes)
+            bytes
         }
     }
 

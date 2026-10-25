@@ -100,6 +100,7 @@ import com.dsmobile.app.media.MediaUtils
 import com.dsmobile.app.net.ApiClient
 import com.dsmobile.app.net.BiliPreview
 import com.dsmobile.app.net.WebPreview
+import java.io.File
 import com.dsmobile.app.parse.DocumentParser
 import com.dsmobile.app.speech.TtsManager
 import kotlinx.coroutines.Dispatchers
@@ -278,8 +279,15 @@ private fun ChatScreen(
     onLogout: () -> Unit,
 ) {
     val dao = remember { db.messageDao() }
+    val context = LocalContext.current
     val api = remember(settings.baseUrl, token, settings.biliSessdata, settings.biliCookie) {
-        ApiClient(settings.baseUrl, token, settings.biliSessdata, settings.biliCookie)
+        ApiClient(
+            settings.baseUrl,
+            token,
+            settings.biliSessdata,
+            settings.biliCookie,
+            File(context.cacheDir, "api-media"),
+        )
     }
     val messages by dao.observe().collectAsState(initial = emptyList())
     val pending by dao.observePending().collectAsState(initial = emptyList())
@@ -290,7 +298,6 @@ private fun ChatScreen(
     var showSettings by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
-    val context = LocalContext.current
 
     suspend fun syncEvents() {
         val after = dao.maxId()
