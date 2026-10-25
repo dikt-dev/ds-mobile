@@ -1,6 +1,7 @@
 package com.dsmobile.app
 
 import android.Manifest
+import android.app.Activity
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -8,6 +9,7 @@ import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
+import android.provider.DocumentsContract
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -287,8 +289,9 @@ private fun ChatScreen(
     }
 
     val filePicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri ->
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val uri = if (result.resultCode == Activity.RESULT_OK) result.data?.data else null
         if (uri != null) {
             scope.launch {
                 busy = true
@@ -414,7 +417,18 @@ private fun ChatScreen(
             Spacer(Modifier.width(6.dp))
             OutlinedButton(
                 onClick = {
-                    filePicker.launch(arrayOf("application/pdf", "text/*"))
+                    val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                        addCategory(Intent.CATEGORY_OPENABLE)
+                        type = "*/*"
+                        putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("application/pdf", "text/*"))
+                        putExtra(
+                            DocumentsContract.EXTRA_INITIAL_URI,
+                            Uri.parse(
+                                "content://com.android.externalstorage.documents/document/primary%3ADownload"
+                            ),
+                        )
+                    }
+                    filePicker.launch(intent)
                 },
                 enabled = !busy,
             ) {
