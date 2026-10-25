@@ -18,8 +18,13 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -30,18 +35,20 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -59,9 +66,14 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -414,25 +426,42 @@ private fun ChatScreen(
         if (count > 0) listState.animateScrollToItem(count - 1)
     }
 
-    Column(modifier = Modifier.fillMaxSize().statusBarsPadding().imePadding()) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("DS-Mobile", style = MaterialTheme.typography.titleLarge)
-            Spacer(Modifier.weight(1f))
-            OutlinedButton(
-                onClick = { context.startActivity(Intent(context, MainActivity::class.java)) },
-            ) { Text("调试") }
-            Spacer(Modifier.width(6.dp))
-            OutlinedButton(onClick = { showSettings = true }) { Text("设置") }
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFFF3F4F6))
+            .statusBarsPadding()
+            .imePadding(),
+    ) {
+        Surface(color = Color.White, shadowElevation = 2.dp) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column {
+                    Text(
+                        "DS-Mobile",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        "大肥鱼 · App",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color(0xFF8A8A8A),
+                    )
+                }
+                Spacer(Modifier.weight(1f))
+                TextButton(
+                    onClick = { context.startActivity(Intent(context, MainActivity::class.java)) },
+                ) { Text("调试") }
+                TextButton(onClick = { showSettings = true }) { Text("设置") }
+            }
         }
-        HorizontalDivider()
         LazyColumn(
             state = listState,
             modifier = Modifier.weight(1f).fillMaxWidth(),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             items(messages, key = { it.id }) { message ->
                 MessageBubble(
@@ -479,10 +508,12 @@ private fun ChatScreen(
                 textAlign = TextAlign.Center,
             )
         }
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+        Surface(color = Color.White, shadowElevation = 6.dp) {
+            Column {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
             OutlinedButton(
                 onClick = {
                     imagePicker.launch(
@@ -546,6 +577,8 @@ private fun ChatScreen(
                 },
             ) {
                 Text(if (busy) "…" else "发送")
+            }
+        }
             }
         }
         if (showSettings) {
@@ -645,14 +678,79 @@ private fun SettingsDialog(
 }
 
 @Composable
-private fun VoiceBar(onPlay: () -> Unit) {
+private fun VoiceMessageBubble(text: String, onPlay: () -> Unit) {
+    val seconds = (text.length / 5).coerceIn(2, 60)
+    val width = (176 + seconds * 2).coerceAtMost(268).dp
     Row(
-        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.Start,
     ) {
-        TextButton(onClick = onPlay) { Text("▶ 语音") }
-        Text("点击播放", style = MaterialTheme.typography.labelSmall)
+        Surface(
+            modifier = Modifier
+                .width(width)
+                .clip(RoundedCornerShape(20.dp))
+                .clickable { onPlay() },
+            shape = RoundedCornerShape(20.dp),
+            color = Color.White,
+            border = BorderStroke(1.dp, Color(0x14000000)),
+            shadowElevation = 1.dp,
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Surface(
+                    shape = CircleShape,
+                    color = Color(0xFF7C5CBF),
+                    modifier = Modifier.size(30.dp),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(
+                            "▶",
+                            color = Color.White,
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                    }
+                }
+                Spacer(Modifier.width(9.dp))
+                VoiceWaveform(color = Color(0xFF7C5CBF), modifier = Modifier.weight(1f))
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    formatDuration(seconds),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color(0xFF666666),
+                )
+            }
+        }
     }
+}
+
+@Composable
+private fun VoiceWaveform(color: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier.height(20.dp)) {
+        val bars = 16
+        val step = size.width / bars
+        val heights = listOf(0.35f, 0.55f, 0.8f, 0.45f, 0.7f, 1f, 0.5f, 0.75f, 0.6f, 0.9f, 0.4f, 0.65f, 0.85f, 0.5f, 0.7f, 0.35f)
+        repeat(bars) { i ->
+            val h = size.height * heights[i]
+            val x = step * i + step / 2
+            drawLine(
+                color = color.copy(alpha = 0.65f),
+                start = Offset(x, (size.height - h) / 2),
+                end = Offset(x, (size.height + h) / 2),
+                strokeWidth = 2.4.dp.toPx(),
+                cap = androidx.compose.ui.graphics.StrokeCap.Round,
+            )
+        }
+    }
+}
+
+private fun formatDuration(seconds: Int): String =
+    "%d:%02d".format(seconds / 60, seconds % 60)
+
+private fun messageTime(raw: String): String {
+    val time = raw.substringAfter('T', "").take(5)
+    return if (time.length == 5) time else ""
 }
 
 @Composable
@@ -661,9 +759,19 @@ private fun StreamingBubble(text: String) {
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.Start,
     ) {
-        Card(modifier = Modifier.fillMaxWidth(0.86f)) {
-            Column(modifier = Modifier.padding(10.dp)) {
-                Text("App · 大肥鱼 · 正在输入", style = MaterialTheme.typography.labelSmall)
+        Surface(
+            modifier = Modifier.widthIn(max = 300.dp),
+            shape = RoundedCornerShape(topStart = 4.dp, topEnd = 18.dp, bottomEnd = 18.dp, bottomStart = 18.dp),
+            color = Color.White,
+            border = BorderStroke(1.dp, Color(0x14000000)),
+            shadowElevation = 1.dp,
+        ) {
+            Column(modifier = Modifier.padding(horizontal = 13.dp, vertical = 10.dp)) {
+                Text(
+                    "大肥鱼 · 正在输入",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color(0xFF888888),
+                )
                 Spacer(Modifier.height(4.dp))
                 Text(
                     text
@@ -671,6 +779,7 @@ private fun StreamingBubble(text: String) {
                         .replace("【语音消息】", "")
                         .replace("（语音）", ""),
                     style = MaterialTheme.typography.bodyMedium,
+                    color = Color(0xFF1F1F1F),
                 )
             }
         }
@@ -683,19 +792,28 @@ private fun PendingBubble(
     busy: Boolean,
     onRetry: () -> Unit,
 ) {
-    Row(
+    Column(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.End,
+        horizontalAlignment = Alignment.End,
     ) {
-        Card(modifier = Modifier.fillMaxWidth(0.86f)) {
-            Column(modifier = Modifier.padding(10.dp)) {
-                Text("App · 待发送", style = MaterialTheme.typography.labelSmall)
-                Spacer(Modifier.height(4.dp))
+        Text(
+            "我 · App · 待发送",
+            style = MaterialTheme.typography.labelSmall,
+            color = Color(0xFF888888),
+            modifier = Modifier.padding(end = 6.dp, bottom = 3.dp),
+        )
+        Surface(
+            modifier = Modifier.widthIn(max = 300.dp),
+            shape = RoundedCornerShape(topStart = 18.dp, topEnd = 4.dp, bottomEnd = 18.dp, bottomStart = 18.dp),
+            color = Color(0xFFE8E0FA),
+        ) {
+            Column(modifier = Modifier.padding(horizontal = 13.dp, vertical = 10.dp)) {
                 Text(
                     message.content,
                     style = MaterialTheme.typography.bodyMedium,
                     maxLines = 30,
                     overflow = TextOverflow.Ellipsis,
+                    color = Color(0xFF1F1F1F),
                 )
                 TextButton(onClick = onRetry, enabled = !busy) {
                     Text(if (busy) "发送中…" else "重试")
@@ -723,43 +841,82 @@ private fun MessageBubble(
         .findAll(message.content)
         .map { it.groupValues[1] }
         .toList()
-    var display = message.content
-        .replace(Regex("\\[图片:([^\\]]+)]"), "")
+
     val voiceMarkers = listOf("[语音]", "【语音消息】", "（语音）")
-    val isVoice = !isUser && voiceMarkers.any { display.contains(it) }
-    voiceMarkers.forEach { display = display.replace(it, "") }
-    display = display.trim()
-    LaunchedEffect(isVoice, display) {
-        if (isVoice && display.isNotEmpty()) onPrefetch(display)
+    val firstMarker = voiceMarkers
+        .mapNotNull { marker -> message.content.indexOf(marker).takeIf { it >= 0 }?.let { it to marker } }
+        .minByOrNull { it.first }
+    val textPart = if (firstMarker != null) message.content.substring(0, firstMarker.first) else message.content
+    val voicePart = if (firstMarker != null) {
+        message.content.substring(firstMarker.first + firstMarker.second.length)
+    } else {
+        ""
     }
-    Row(
+    val displayText = textPart
+        .replace(Regex("\\[图片:([^\\]]+)]"), "")
+        .trim()
+    val voiceText = voicePart
+        .replace(Regex("\\[图片:([^\\]]+)]"), "")
+        .trim()
+    val isVoice = !isUser && voiceText.isNotEmpty()
+
+    LaunchedEffect(isVoice, voiceText) {
+        if (isVoice) onPrefetch(voiceText)
+    }
+
+    Column(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
+        horizontalAlignment = if (isUser) Alignment.End else Alignment.Start,
     ) {
-        Card(modifier = Modifier.fillMaxWidth(0.86f)) {
-            Column(modifier = Modifier.padding(10.dp)) {
-                Text(
-                    "$channel · ${if (isUser) "我" else "大肥鱼"}",
-                    style = MaterialTheme.typography.labelSmall,
-                )
-                Spacer(Modifier.height(4.dp))
-                if (display.isNotEmpty()) {
-                    Text(
-                        display,
-                        style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 30,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+        val time = messageTime(message.createdAt)
+        Text(
+            text = buildString {
+                append(if (isUser) "我" else "大肥鱼")
+                append(" · ")
+                append(channel)
+                if (time.isNotEmpty()) {
+                    append("  ")
+                    append(time)
                 }
-                imageKeys.forEach { key ->
-                    MessageImage(api, key)
-                }
-                if (!isUser && isVoice) {
-                    VoiceBar(onPlay = { onSpeak(display) })
-                } else if (!isUser && display.isNotEmpty()) {
-                    TextButton(onClick = { onSpeak(display) }) { Text("朗读") }
+            },
+            style = MaterialTheme.typography.labelSmall,
+            color = Color(0xFF8A8A8A),
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+        )
+        if (displayText.isNotEmpty() || imageKeys.isNotEmpty()) {
+            Surface(
+                modifier = Modifier.widthIn(max = 300.dp),
+                shape = if (isUser) {
+                    RoundedCornerShape(topStart = 18.dp, topEnd = 4.dp, bottomEnd = 18.dp, bottomStart = 18.dp)
+                } else {
+                    RoundedCornerShape(topStart = 4.dp, topEnd = 18.dp, bottomEnd = 18.dp, bottomStart = 18.dp)
+                },
+                color = if (isUser) Color(0xFFE8E0FA) else Color.White,
+                border = if (isUser) null else BorderStroke(1.dp, Color(0x14000000)),
+                shadowElevation = 1.dp,
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 13.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    if (displayText.isNotEmpty()) {
+                        Text(
+                            displayText,
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 30,
+                            overflow = TextOverflow.Ellipsis,
+                            color = Color(0xFF1F1F1F),
+                        )
+                    }
+                    imageKeys.forEach { key ->
+                        MessageImage(api, key)
+                    }
                 }
             }
+        }
+        if (isVoice) {
+            Spacer(Modifier.height(7.dp))
+            VoiceMessageBubble(voiceText, onPlay = { onSpeak(voiceText) })
         }
     }
 }
@@ -775,12 +932,14 @@ private fun MessageImage(api: ApiClient, key: String) {
         }
     }
     bitmap?.let {
-        Spacer(Modifier.height(6.dp))
         Image(
             bitmap = it,
             contentDescription = null,
-            modifier = Modifier.fillMaxWidth().heightIn(max = 320.dp),
-            contentScale = ContentScale.Fit,
+            modifier = Modifier
+                .width(220.dp)
+                .heightIn(max = 260.dp)
+                .clip(RoundedCornerShape(12.dp)),
+            contentScale = ContentScale.Crop,
         )
     }
 }
