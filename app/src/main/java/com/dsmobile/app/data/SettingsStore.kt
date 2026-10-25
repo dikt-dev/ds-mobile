@@ -80,6 +80,10 @@ class SettingsStore(context: Context) {
         get() = prefs.getString("bili_cookie", "") ?: ""
         set(value) = prefs.edit().putString("bili_cookie", value.trim()).apply()
 
+    var sshPublicKey: String
+        get() = prefs.getString("ssh_public_key", "") ?: ""
+        set(value) = prefs.edit().putString("ssh_public_key", value.trim()).apply()
+
     fun clear() {
         prefs.edit().clear().apply()
     }

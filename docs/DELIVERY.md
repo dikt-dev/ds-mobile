@@ -10,7 +10,7 @@
 dist/DS-Mobile-0.1.0.apk
 ```
 
-- 大小：约 41.5 MB
+- 大小：约 41.6 MB
 - 签名：debug 签名（私人自用，不上架）
 - 安装：
 
@@ -21,7 +21,7 @@ adb install -r dist/DS-Mobile-0.1.0.apk
 - SHA-256：
 
 ```text
-01DF8765EB0BF2CCF29EDF026773AC8B82F2CDB10A29E8035E1125394DDB5774
+B6D97C564667C0302F1309B304BA67B6406A42A0B42417EAD1F1E4EB7466580E
 ```
 
 ## 已具备

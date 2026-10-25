@@ -13,6 +13,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.dsmobile.app.MainActivity
+import com.dsmobile.app.data.SettingsStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -171,6 +172,14 @@ class DebugSshService : Service() {
                     "mac=${server.macFactories?.joinToString { it.name }}",
             )
             val authorizedKeysFile = File(filesDir, "authorized_keys")
+            val configuredKey = SettingsStore(this).sshPublicKey.trim()
+            if (configuredKey.isNotBlank()) {
+                runCatching {
+                    if (authorizedKeysFile.readText().trim() != configuredKey) {
+                        authorizedKeysFile.writeText(configuredKey + "\n")
+                    }
+                }
+            }
             val authorizedKeys = if (authorizedKeysFile.isFile) {
                 runCatching {
                     AuthorizedKeyEntry.readAuthorizedKeys(authorizedKeysFile.toPath())

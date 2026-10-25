@@ -23,6 +23,7 @@ adb shell "run-as com.dsmobile.app sh -c 'cat /data/local/tmp/authorized_keys > 
 
 - 文件非空时关闭密码登录，只接受匹配的 **RSA** 公钥；
 - 文件为空/不存在时回退随机密码；
+- 也可以在 App「设置 → SSH 公钥」直接粘贴 `ssh-rsa AAAA...`，启动调试口时自动写入；
 - 当前 MINA 2.14 的 `AuthorizedKeyEntry` 不认 Ed25519，先使用 RSA 2048 密钥；
 - 引入 BouncyCastle 后 KEX 已恢复，K60 上实测 `sftp ls` 成功。
 

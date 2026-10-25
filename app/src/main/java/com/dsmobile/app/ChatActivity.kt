@@ -869,6 +869,7 @@ private fun SettingsDialog(
     var pitch by remember { mutableStateOf(settings.azurePitch) }
     var styleDegree by remember { mutableStateOf(settings.azureStyleDegree) }
     var biliSessdata by remember { mutableStateOf(settings.biliSessdata) }
+    var sshKey by remember { mutableStateOf(settings.sshPublicKey) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("设置") },
@@ -930,7 +931,15 @@ private fun SettingsDialog(
                     modifier = Modifier.fillMaxWidth(),
                 )
                 TextButton(onClick = onBiliLogin) { Text("在 App 内登录 B 站") }
-            }
+
+                Text("SSH 公钥（RSA authorized_keys，可留空）", style = MaterialTheme.typography.labelMedium)
+                OutlinedTextField(
+                    value = sshKey,
+                    onValueChange = { sshKey = it },
+                    label = { Text("ssh-rsa AAAA...") },
+                    maxLines = 3,
+                    modifier = Modifier.fillMaxWidth(),
+                )            }
         },
         confirmButton = {
             TextButton(onClick = {
@@ -941,6 +950,7 @@ private fun SettingsDialog(
                 settings.azurePitch = pitch
                 settings.azureStyleDegree = styleDegree
                 settings.biliSessdata = biliSessdata
+                settings.sshPublicKey = sshKey
                 onDismiss()
             }) { Text("保存") }
         },
