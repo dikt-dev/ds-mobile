@@ -348,9 +348,17 @@ private fun ChatScreen(
         }
     }
 
-    suspend fun syncLatest() {
-        val page = api.events(0, 50, latest = true)
-        if (page.messages.isNotEmpty()) dao.insertAll(page.messages)
+    /** 首装全量补齐；之后只走 syncEvents 增量。 */
+    suspend fun syncAllHistory() {
+        var after = 0L
+        while (true) {
+            val page = api.events(after, 100)
+            if (page.messages.isEmpty()) break
+            dao.insertAll(page.messages)
+            val next = page.messages.last().id
+            if (!page.hasMore || next <= after) break
+            after = next
+        }
     }
 
     suspend fun sendText(text: String) {
@@ -639,8 +647,8 @@ private fun ChatScreen(
 
     LaunchedEffect(Unit) {
         try {
-            // 首次启动取最新一页；已有本地记录则从本地最大 id 补齐离线期间的分页。
-            if (dao.maxId() == 0L) syncLatest() else syncEvents()
+            // 首装全量补齐历史；已有本地记录则从本地最大 id 补齐离线期间的分页。
+            if (dao.maxId() == 0L) syncAllHistory() else syncEvents()
         } catch (e: Exception) {
             status = "同步失败：${e.message}"
         }
