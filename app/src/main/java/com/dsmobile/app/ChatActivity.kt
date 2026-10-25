@@ -1068,10 +1068,10 @@ private fun BilibiliCard(api: ApiClient, url: String, biliCookie: String) {
                         contentDescription = "B站视频抽帧",
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(132.dp)
+                            .height(170.dp)
                             .padding(top = 6.dp)
                             .clip(RoundedCornerShape(8.dp)),
-                        contentScale = ContentScale.Crop,
+                        contentScale = ContentScale.Fit,
                     )
                 } else if (framesLoading) {
                     Text(

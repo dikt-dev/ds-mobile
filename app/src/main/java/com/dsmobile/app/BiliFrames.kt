@@ -88,35 +88,13 @@ object BiliFrames {
     }
 
     private fun extractStoryboard(bytes: ByteArray, cols: Int, rows: Int): Bitmap? {
-        var options = BitmapFactory.Options().apply { inSampleSize = 2 }
-        var source = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
-        if (source == null) {
-            options = BitmapFactory.Options().apply { inSampleSize = 4 }
-            source = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+        // B站 image[] 本身就是 cols×rows 的拼图，直接显示整张，不再裁成 3×3。
+        for (sample in intArrayOf(4, 2, 1)) {
+            val options = BitmapFactory.Options().apply { inSampleSize = sample }
+            val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+            if (bitmap != null) return bitmap
         }
-        if (source == null) return null
-        val cellW = source.width / cols
-        val cellH = source.height / rows
-        if (cellW <= 0 || cellH <= 0) {
-            source.recycle()
-            return null
-        }
-        val outW = 720
-        val outH = 405
-        val sheet = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(sheet)
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-        for (gy in 0 until 3) {
-            for (gx in 0 until 3) {
-                val col = gx * (cols - 1) / 2
-                val row = gy * (rows - 1) / 2
-                val src = Rect(col * cellW, row * cellH, (col + 1) * cellW, (row + 1) * cellH)
-                val dst = Rect(gx * 240, gy * 135, (gx + 1) * 240, (gy + 1) * 135)
-                canvas.drawBitmap(source, src, dst, paint)
-            }
-        }
-        source.recycle()
-        return sheet
+        return null
     }
 
     private fun downloadBytes(url: String, cookie: String): ByteArray? {
