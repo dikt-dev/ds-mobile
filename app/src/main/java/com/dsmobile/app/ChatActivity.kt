@@ -74,6 +74,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -557,18 +558,23 @@ private fun ChatScreen(
         scope.launch {
             val count = messages.size + pending.size + if (streamingText.isNotEmpty() || isTyping) 1 else 0
             if (count > 0 && !listState.isScrollInProgress) {
-                listState.animateScrollToItem(count - 1)
+                listState.animateScrollToItem(count)
             }
         }
     }
     LaunchedEffect(itemCount) {
         if (itemCount <= 0) return@LaunchedEffect
         if (!initialScrollDone) {
-            // 首次打开直接定位到最新消息，不走 animateScrollToItem，避免看到从上面滑下来的过程。
-            listState.scrollToItem(itemCount - 1)
+            // 首次打开等列表完成测量后再直接贴底，避免长消息/图片高度未算完导致差一截。
+            repeat(4) {
+                listState.scrollToItem(itemCount)
+                withFrameNanos { }
+                delay(60)
+            }
+            listState.scrollToItem(itemCount)
             initialScrollDone = true
         } else if (!listState.isScrollInProgress) {
-            listState.animateScrollToItem(itemCount - 1)
+            listState.animateScrollToItem(itemCount)
         }
     }
 
@@ -663,6 +669,9 @@ private fun ChatScreen(
                 item(key = "typing") {
                     TypingBubble()
                 }
+            }
+            item(key = "bottom-sentinel") {
+                Spacer(Modifier.height(1.dp))
             }
         }
         if (status.isNotEmpty()) {
