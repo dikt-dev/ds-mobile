@@ -11,6 +11,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.provider.DocumentsContract
 import android.provider.Settings
+import android.speech.RecognizerIntent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -266,6 +267,73 @@ private fun ChatScreen(
         if (page.messages.isNotEmpty()) dao.insertAll(page.messages)
     }
 
+    suspend fun sendText(text: String) {
+        busy = true
+        status = "发送中…"
+        streamingText = ""
+        val pendingMessage = PendingMessageEntity(
+            content = text,
+            clientMessageId = UUID.randomUUID().toString(),
+        )
+        val pendingId = dao.insertPending(pendingMessage)
+        try {
+            api.chatStream(text, pendingMessage.clientMessageId) { delta ->
+                withContext(Dispatchers.Main) {
+                    streamingText += delta
+                    status = "接收中…"
+                }
+            }
+            dao.deletePending(pendingMessage.copy(id = pendingId))
+            delay(300)
+            syncEvents()
+            streamingText = ""
+            status = ""
+        } catch (e: Exception) {
+            status = "发送失败：${e.message}，可在下方重试"
+            streamingText = ""
+        } finally {
+            busy = false
+        }
+    }
+
+    val voiceLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val spoken = result.data
+                ?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+                ?.firstOrNull()
+            if (spoken.isNullOrBlank()) {
+                status = "没有识别到语音"
+            } else {
+                scope.launch { sendText(spoken) }
+            }
+        }
+    }
+
+    fun startVoice() {
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "zh-CN")
+            putExtra(RecognizerIntent.EXTRA_PROMPT, "说点什么…")
+        }
+        if (intent.resolveActivity(context.packageManager) == null) {
+            status = "系统没有语音识别服务"
+        } else {
+            try {
+                voiceLauncher.launch(intent)
+            } catch (e: Exception) {
+                status = "语音识别启动失败：${e.message}"
+            }
+        }
+    }
+
+    val voicePermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) startVoice() else status = "需要麦克风权限"
+    }
+
     val imagePicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia()
     ) { uri ->
@@ -401,7 +469,7 @@ private fun ChatScreen(
             )
         }
         Row(
-            modifier = Modifier.fillMaxWidth().padding(12.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             OutlinedButton(
@@ -434,6 +502,22 @@ private fun ChatScreen(
                 Text("文件")
             }
             Spacer(Modifier.width(6.dp))
+            OutlinedButton(
+                onClick = {
+                    val granted = ContextCompat.checkSelfPermission(
+                        context, Manifest.permission.RECORD_AUDIO
+                    ) == PackageManager.PERMISSION_GRANTED
+                    if (granted) startVoice() else voicePermission.launch(Manifest.permission.RECORD_AUDIO)
+                },
+                enabled = !busy,
+            ) {
+                Text("语音")
+            }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             OutlinedTextField(
                 value = input,
                 onValueChange = { input = it },
@@ -447,34 +531,7 @@ private fun ChatScreen(
                 onClick = {
                     val text = input.trim()
                     input = ""
-                    busy = true
-                    status = "发送中…"
-                    streamingText = ""
-                    scope.launch {
-                        val pendingMessage = PendingMessageEntity(
-                            content = text,
-                            clientMessageId = UUID.randomUUID().toString(),
-                        )
-                        val pendingId = dao.insertPending(pendingMessage)
-                        try {
-                            api.chatStream(text, pendingMessage.clientMessageId) { delta ->
-                                withContext(Dispatchers.Main) {
-                                    streamingText += delta
-                                    status = "接收中…"
-                                }
-                            }
-                            dao.deletePending(pendingMessage.copy(id = pendingId))
-                            delay(300)
-                            syncEvents()
-                            streamingText = ""
-                            status = ""
-                        } catch (e: Exception) {
-                            status = "发送失败：${e.message}，可在下方重试"
-                            streamingText = ""
-                        } finally {
-                            busy = false
-                        }
-                    }
+                    scope.launch { sendText(text) }
                 },
             ) {
                 Text(if (busy) "…" else "发送")
