@@ -155,9 +155,18 @@ class ApiClient(
         }
     }
 
-    suspend fun events(afterId: Long, limit: Int = 100, latest: Boolean = false): EventPage =
+    suspend fun events(
+        afterId: Long,
+        limit: Int = 100,
+        latest: Boolean = false,
+        beforeId: Long? = null,
+    ): EventPage =
         withContext(Dispatchers.IO) {
-            val suffix = if (latest) "&latest=1" else ""
+            val suffix = when {
+                latest -> "&latest=1"
+                beforeId != null && beforeId > 0 -> "&before_id=$beforeId"
+                else -> ""
+            }
             val request = Request.Builder()
                 .url("$baseUrl/api/app/events?after_id=$afterId&limit=$limit$suffix")
                 .header("Authorization", "Bearer ${requireToken()}")

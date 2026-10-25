@@ -19,6 +19,9 @@ interface MessageDao {
     @Query("SELECT COALESCE(MAX(id), 0) FROM messages")
     suspend fun maxId(): Long
 
+    @Query("SELECT COALESCE(MIN(id), 0) FROM messages")
+    suspend fun minId(): Long
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPending(message: PendingMessageEntity): Long
 

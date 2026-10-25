@@ -348,6 +348,7 @@ private fun ChatScreen(
     var streamingText by remember { mutableStateOf("") }
     var showSettings by remember { mutableStateOf(false) }
     var initialScrollDone by remember { mutableStateOf(false) }
+    var historyReady by remember { mutableStateOf(false) }
     var stickToBottom by remember { mutableStateOf(true) }
     var animateSegments by remember { mutableStateOf(false) }
     val failedPendingIds = remember { mutableStateMapOf<Long, Boolean>() }
@@ -381,6 +382,22 @@ private fun ChatScreen(
             after = next
         }
         if (all.isNotEmpty()) dao.insertAll(all)
+    }
+
+    /** 老版本本地库只有最近 300 条；从本地最小 id 往前回填。 */
+    suspend fun backfillOlderHistory() {
+        var before = dao.minId()
+        var guard = 0
+        while (before > 1 && guard < 200) {
+            val page = api.events(0, 100, beforeId = before)
+            if (page.messages.isEmpty()) break
+            dao.insertAll(page.messages)
+            val next = page.messages.first().id
+            if (next <= 0 || next >= before) break
+            before = next
+            if (!page.hasMore) break
+            guard++
+        }
     }
 
     suspend fun sendText(text: String) {
@@ -670,13 +687,20 @@ private fun ChatScreen(
 
     LaunchedEffect(Unit) {
         try {
-            // 首装全量补齐历史；已有本地记录则从本地最大 id 补齐离线期间的分页。
-            if (dao.maxId() == 0L) syncAllHistory() else syncEvents()
+            // 首装全量补齐历史；已有旧版本缓存则增量 + 往前回填更早的记录。
+            if (dao.maxId() == 0L) {
+                syncAllHistory()
+            } else {
+                syncEvents()
+                backfillOlderHistory()
+            }
         } catch (e: Exception) {
             status = "同步失败：${e.message}"
+        } finally {
+            // 首屏等历史补齐后再显示，避免用户翻到一半突然冒出旧记录。
+            historyReady = true
+            animateSegments = true
         }
-        // 历史消息直接完整显示；只有启动后新到达的回复才逐句揭示。
-        animateSegments = true
         while (true) {
             delay(5_000)
             try {
@@ -693,7 +717,7 @@ private fun ChatScreen(
 
     // 键盘弹出时聊天区域变矮，滚动位置不会自动跟着，主动重新贴底。
     LaunchedEffect(imeHeight, itemCount) {
-        if (imeHeight > 0 && itemCount > 0) {
+        if (imeHeight > 0 && itemCount > 0 && stickToBottom) {
             repeat(3) {
                 delay(60)
                 listState.scrollToItem(itemCount)
@@ -803,12 +827,21 @@ private fun ChatScreen(
                 HeaderAction(Icons.Filled.Settings) { showSettings = true }
             }
         }
+        if (!historyReady) {
+            Text(
+                "正在加载聊天记录…",
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                style = MaterialTheme.typography.labelMedium,
+                color = Color(0xFF9A94A6),
+                textAlign = TextAlign.Center,
+            )
+        }
         LazyColumn(
             state = listState,
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .alpha(if (initialScrollDone || (messages.isEmpty() && pending.isEmpty())) 1f else 0f),
+                .alpha(if (historyReady) 1f else 0f),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
