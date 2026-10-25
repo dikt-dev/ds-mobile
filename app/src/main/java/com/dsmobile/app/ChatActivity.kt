@@ -507,8 +507,9 @@ private fun ChatScreen(
         }
     }
 
-    LaunchedEffect(messages.size + pending.size + if (streamingText.isNotEmpty()) 1 else 0) {
-        val count = messages.size + pending.size + if (streamingText.isNotEmpty()) 1 else 0
+    val isTyping = busy && streamingText.isEmpty() && isTypingStatus(status)
+    LaunchedEffect(messages.size + pending.size + if (streamingText.isNotEmpty() || isTyping) 1 else 0) {
+        val count = messages.size + pending.size + if (streamingText.isNotEmpty() || isTyping) 1 else 0
         if (count > 0) listState.animateScrollToItem(count - 1)
     }
 
@@ -589,6 +590,10 @@ private fun ChatScreen(
             if (streamingText.isNotEmpty()) {
                 item(key = "streaming") {
                     StreamingBubble(streamingText)
+                }
+            } else if (isTyping) {
+                item(key = "typing") {
+                    TypingBubble()
                 }
             }
         }
@@ -1080,6 +1085,59 @@ private fun BilibiliCard(api: ApiClient, url: String, biliCookie: String) {
 }
 
 @Composable
+private fun SegmentedMessage(
+    label: String,
+    segments: List<ChatSegment>,
+    onSpeak: (String) -> Unit,
+    onPrefetch: (String) -> Unit,
+) {
+    val voices = segments.filterIsInstance<ChatSegment.Voice>().map { it.text }
+    LaunchedEffect(voices) {
+        voices.forEach { if (it.isNotBlank()) onPrefetch(it) }
+    }
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(7.dp),
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = Color(0xFF8A8A8A),
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+        )
+        segments.forEach { segment ->
+            when (segment) {
+                is ChatSegment.Text -> if (segment.text.isNotBlank()) {
+                    Surface(
+                        modifier = Modifier.widthIn(max = 300.dp),
+                        shape = RoundedCornerShape(
+                            topStart = 4.dp,
+                            topEnd = 18.dp,
+                            bottomEnd = 18.dp,
+                            bottomStart = 18.dp,
+                        ),
+                        color = Color.White,
+                        border = BorderStroke(1.dp, Color(0x14000000)),
+                        shadowElevation = 1.dp,
+                    ) {
+                        Text(
+                            segment.text,
+                            modifier = Modifier.padding(horizontal = 13.dp, vertical = 10.dp),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Color(0xFF1F1F1F),
+                        )
+                    }
+                }
+                is ChatSegment.Voice -> VoiceMessageBubble(
+                    segment.text,
+                    onPlay = { onSpeak(segment.text) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun VoiceMessageBubble(text: String, onPlay: () -> Unit) {
     val seconds = (text.length / 5).coerceIn(2, 60)
     val width = (176 + seconds * 2).coerceAtMost(268).dp
@@ -1150,6 +1208,75 @@ private fun VoiceWaveform(color: Color, modifier: Modifier = Modifier) {
 private fun formatDuration(seconds: Int): String =
     "%d:%02d".format(seconds / 60, seconds % 60)
 
+private sealed interface ChatSegment {
+    data class Text(val text: String) : ChatSegment
+    data class Voice(val text: String) : ChatSegment
+}
+
+private val VOICE_MARKERS = listOf("【语音】", "【语音消息】", "[语音消息]", "[语音]", "（语音）")
+
+private fun splitSentences(text: String): List<String> {
+    val out = mutableListOf<String>()
+    text.split(Regex("(?<=[。！？!?；;\\n])")).forEach { raw ->
+        var s = raw.trim()
+        if (s.isEmpty()) return@forEach
+        while (s.length > 120) {
+            var cut = s.indexOf('，', 60)
+            if (cut < 0) cut = s.indexOf(',', 60)
+            if (cut < 0) cut = 120
+            out.add(s.substring(0, cut + 1).trim())
+            s = s.substring(cut + 1).trim()
+        }
+        if (s.isNotEmpty()) out.add(s)
+    }
+    return out
+}
+
+/** 把包含语音标记的长消息拆成“文字句 + 独立语音”的片段。 */
+private fun parseChatSegments(raw: String): List<ChatSegment> {
+    val out = mutableListOf<ChatSegment>()
+    var rest = raw
+    fun addText(text: String) {
+        splitSentences(text).forEach { if (it.isNotBlank()) out.add(ChatSegment.Text(it)) }
+    }
+    while (rest.isNotBlank()) {
+        val hit = VOICE_MARKERS
+            .mapNotNull { marker -> rest.indexOf(marker).takeIf { it >= 0 }?.let { it to marker } }
+            .minByOrNull { it.first }
+        if (hit == null) {
+            addText(rest)
+            break
+        }
+        addText(rest.substring(0, hit.first))
+        rest = rest.substring(hit.first + hit.second.length)
+        val lead = rest.indexOfFirst { !it.isWhitespace() }
+        if (lead >= 0 && (rest[lead] == '「' || rest[lead] == '“')) {
+            val closeChar = if (rest[lead] == '「') '」' else '”'
+            val close = rest.indexOf(closeChar, lead + 1)
+            if (close > lead) {
+                val voice = rest.substring(lead + 1, close).trim()
+                if (voice.isNotEmpty()) out.add(ChatSegment.Voice(voice))
+                rest = rest.substring(close + 1)
+                continue
+            }
+        }
+        val next = VOICE_MARKERS
+            .mapNotNull { rest.indexOf(it).takeIf { i -> i >= 0 } }
+            .minOrNull() ?: rest.length
+        val voice = rest.substring(0, next)
+            .trim()
+            .removeSurrounding("「", "」")
+            .removeSurrounding("“", "”")
+            .trim()
+        if (voice.isNotEmpty()) out.add(ChatSegment.Voice(voice))
+        rest = if (next < rest.length) rest.substring(next) else ""
+    }
+    return out
+}
+
+private fun isTypingStatus(status: String): Boolean =
+    status == "发送中…" || status == "接收中…" || status == "等待回复…"
+
 private fun messageTime(raw: String): String {
     val time = raw.substringAfter('T', "").take(5)
     return if (time.length == 5) time else ""
@@ -1194,33 +1321,74 @@ private fun webMetaText(preview: WebPreview, url: String): String = buildString 
 
 @Composable
 private fun StreamingBubble(text: String) {
+    val segments = parseChatSegments(text)
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.Start,
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(
+                "大肥鱼 · 正在输入",
+                style = MaterialTheme.typography.labelSmall,
+                color = Color(0xFF888888),
+                modifier = Modifier.padding(horizontal = 6.dp),
+            )
+            segments.filterIsInstance<ChatSegment.Text>().forEach { segment ->
+                if (segment.text.isNotBlank()) {
+                    Surface(
+                        modifier = Modifier.widthIn(max = 300.dp),
+                        shape = RoundedCornerShape(
+                            topStart = 4.dp,
+                            topEnd = 18.dp,
+                            bottomEnd = 18.dp,
+                            bottomStart = 18.dp,
+                        ),
+                        color = Color.White,
+                        border = BorderStroke(1.dp, Color(0x14000000)),
+                        shadowElevation = 1.dp,
+                    ) {
+                        Text(
+                            segment.text,
+                            modifier = Modifier.padding(horizontal = 13.dp, vertical = 10.dp),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Color(0xFF1F1F1F),
+                        )
+                    }
+                }
+            }
+            if (segments.any { it is ChatSegment.Voice }) {
+                Text(
+                    "语音生成中…",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color(0xFF888888),
+                    modifier = Modifier.padding(horizontal = 6.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TypingBubble() {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.Start,
     ) {
         Surface(
-            modifier = Modifier.widthIn(max = 300.dp),
             shape = RoundedCornerShape(topStart = 4.dp, topEnd = 18.dp, bottomEnd = 18.dp, bottomStart = 18.dp),
             color = Color.White,
             border = BorderStroke(1.dp, Color(0x14000000)),
             shadowElevation = 1.dp,
         ) {
-            Column(modifier = Modifier.padding(horizontal = 13.dp, vertical = 10.dp)) {
-                Text(
-                    "大肥鱼 · 正在输入",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFF888888),
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    text
-                        .replace("[语音]", "")
-                        .replace("【语音消息】", "")
-                        .replace("（语音）", ""),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Color(0xFF1F1F1F),
-                )
-            }
+            Text(
+                "大肥鱼 · 正在输入…",
+                modifier = Modifier.padding(horizontal = 13.dp, vertical = 10.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = Color(0xFF888888),
+            )
         }
     }
 }
@@ -1302,7 +1470,7 @@ private fun MessageBubble(
         .map { it.groupValues[1] }
         .toList()
 
-    val voiceMarkers = listOf("[语音]", "【语音消息】", "（语音）")
+    val voiceMarkers = listOf("【语音】", "[语音]", "【语音消息】", "（语音）")
     val firstMarker = voiceMarkers
         .mapNotNull { marker -> contentForText.indexOf(marker).takeIf { it >= 0 }?.let { it to marker } }
         .minByOrNull { it.first }
@@ -1341,9 +1509,37 @@ private fun MessageBubble(
     var expanded by remember(message.id) { mutableStateOf(false) }
     val isLongText = bodyText.length > 600
 
-    LaunchedEffect(isVoice, voiceText) {
-        if (isVoice) onPrefetch(voiceText)
+    val segmentSource = contentForText
+        .replace(mediaRegex, "")
+        .replace(Regex("\\[图片:([^\\]]+)]"), "")
+        .let { webPattern.replace(it, "") }
+        .trim()
+    val segments = if (
+        !isUser && fileMatch == null && imageKeys.isEmpty() && mediaItems.isEmpty() &&
+        biliUrls.isEmpty() && webUrls.isEmpty()
+    ) {
+        parseChatSegments(segmentSource)
+    } else {
+        emptyList()
     }
+    if (segments.size > 1 || segments.any { it is ChatSegment.Voice }) {
+        val time = messageTime(message.createdAt)
+        val label = buildString {
+            append("大肥鱼")
+            append(" · ")
+            append(channel)
+            if (time.isNotEmpty()) {
+                append("  ")
+                append(time)
+            }
+        }
+        SegmentedMessage(label, segments, onSpeak, onPrefetch)
+        return
+    }
+
+        LaunchedEffect(isVoice, voiceText) {
+            if (isVoice) onPrefetch(voiceText)
+        }
 
     Column(
         modifier = Modifier.fillMaxWidth(),
