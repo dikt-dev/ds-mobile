@@ -78,17 +78,18 @@ class ApiClient(
             }
         }
 
-    suspend fun chat(text: String): String = withContext(Dispatchers.IO) {
+    suspend fun chat(text: String, clientMessageId: String? = null): String = withContext(Dispatchers.IO) {
         val messages = JSONArray().put(JSONObject().put("role", "user").put("content", text))
         val body = JSONObject()
             .put("messages", messages)
             .put("stream", false)
-            .toString()
+        if (!clientMessageId.isNullOrBlank()) body.put("client_message_id", clientMessageId)
+        val bodyText = body.toString()
         val request = Request.Builder()
             .url("$baseUrl/v1/chat/completions")
             .header("Authorization", "Bearer ${requireToken()}")
             .header("X-Client-Channel", "mobile")
-            .post(body.toRequestBody(jsonType))
+            .post(bodyText.toRequestBody(jsonType))
             .build()
         execute(request).use { response ->
             val textBody = response.body?.string().orEmpty()
@@ -104,18 +105,23 @@ class ApiClient(
     }
 
     /** SSE 流式回复；每段 delta 回调一次，返回完整文本。 */
-    suspend fun chatStream(text: String, onDelta: suspend (String) -> Unit): String =
+    suspend fun chatStream(
+        text: String,
+        clientMessageId: String? = null,
+        onDelta: suspend (String) -> Unit,
+    ): String =
         withContext(Dispatchers.IO) {
             val messages = JSONArray().put(JSONObject().put("role", "user").put("content", text))
             val body = JSONObject()
                 .put("messages", messages)
                 .put("stream", true)
-                .toString()
+            if (!clientMessageId.isNullOrBlank()) body.put("client_message_id", clientMessageId)
+            val bodyText = body.toString()
             val request = Request.Builder()
                 .url("$baseUrl/v1/chat/completions")
                 .header("Authorization", "Bearer ${requireToken()}")
                 .header("X-Client-Channel", "mobile")
-                .post(body.toRequestBody(jsonType))
+                .post(bodyText.toRequestBody(jsonType))
                 .build()
             execute(request).use { response ->
                 if (!response.isSuccessful) {

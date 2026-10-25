@@ -60,6 +60,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.UUID
 
 class ChatActivity : ComponentActivity() {
 
@@ -312,7 +313,7 @@ private fun ChatScreen(
                             busy = true
                             status = "重试发送…"
                             try {
-                                api.chat(message.content)
+                                api.chat(message.content, message.clientMessageId)
                                 dao.deletePending(message)
                                 delay(300)
                                 syncEvents()
@@ -361,10 +362,13 @@ private fun ChatScreen(
                     status = "发送中…"
                     streamingText = ""
                     scope.launch {
-                        val pendingMessage = PendingMessageEntity(content = text)
+                        val pendingMessage = PendingMessageEntity(
+                            content = text,
+                            clientMessageId = UUID.randomUUID().toString(),
+                        )
                         val pendingId = dao.insertPending(pendingMessage)
                         try {
-                            api.chatStream(text) { delta ->
+                            api.chatStream(text, pendingMessage.clientMessageId) { delta ->
                                 withContext(Dispatchers.Main) {
                                     streamingText += delta
                                     status = "接收中…"
