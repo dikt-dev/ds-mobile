@@ -995,6 +995,7 @@ private fun BilibiliCard(api: ApiClient, url: String, biliCookie: String) {
                     storyboardRows = p.storyboardRows,
                     playUrl = p.playUrl,
                     cookie = biliCookie,
+                    cacheDir = context.cacheDir,
                 )
                 framesLoading = false
             }

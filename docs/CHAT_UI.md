@@ -121,12 +121,14 @@
 - `screenshot-chat-segments.png`
 - `screenshot-voice-transcript.png`
 
-## 16. 图片磁盘缓存
+## 16. 磁盘缓存
 
-- 图片/GIF 字节写入 `cache/api-media`，按 key SHA-256 命名；
-- App 重启后先读磁盘，不再重新请求 R2；
-- 上限 200 个文件 / 160MB，按最旧文件淘汰；
-- 内存中仍保留解码后的 Drawable 缓存，滚动也不重解码。
+- 统一上限 **1GB / 1000 个文件**，按最旧文件淘汰；
+- 图片/GIF 字节写入 `cache/api-media`，App 重启先读磁盘；
+- B 站/网页预览元数据写入 `cache/api-media`（带 B 站登录态的 hash，换账号自动失效）；
+- B 站 storyboard sprite 写入 `cache/bili-cache`，重启不重新下载；
+- 内存中仍保留解码后的 Drawable / 预览对象 / ExoPlayer，滚动不重解码；
+- 视频仍按 HTTP 流式播放，不做整段落盘，避免单个大视频占满缓存。
 
 ## 17. 输入区
 

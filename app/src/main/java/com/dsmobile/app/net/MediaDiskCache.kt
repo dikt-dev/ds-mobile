@@ -4,7 +4,11 @@ import java.io.File
 import java.security.MessageDigest
 
 /** 简单的媒体磁盘缓存：跨 App 重启保留图片/GIF 字节。 */
-class MediaDiskCache(private val dir: File) {
+class MediaDiskCache(
+    private val dir: File,
+    private val maxBytes: Long = 1024L * 1024 * 1024,
+    private val maxFiles: Int = 1000,
+) {
     init {
         runCatching { dir.mkdirs() }
     }
@@ -41,9 +45,9 @@ class MediaDiskCache(private val dir: File) {
         val files = dir.listFiles()?.filter { it.isFile } ?: return
         var total = files.sumOf { it.length() }
         var count = files.size
-        if (count <= 200 && total <= 160L * 1024 * 1024) return
+        if (count <= maxFiles && total <= maxBytes) return
         files.sortedBy { it.lastModified() }.forEach { file ->
-            if (count <= 200 && total <= 160L * 1024 * 1024) return
+            if (count <= maxFiles && total <= maxBytes) return
             val len = file.length()
             if (file.delete()) {
                 total -= len

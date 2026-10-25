@@ -8,6 +8,7 @@ import android.graphics.Paint
 import android.graphics.Rect
 import android.media.MediaMetadataRetriever
 import android.util.Log
+import com.dsmobile.app.net.MediaDiskCache
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -32,10 +33,11 @@ object BiliFrames {
         storyboardRows: Int,
         playUrl: String,
         cookie: String,
+        cacheDir: File? = null,
     ): Bitmap? = withContext(Dispatchers.IO) {
         MediaCaches.biliFrame(cacheKey)?.let { return@withContext it }
         if (storyboardUrl.isNotBlank() && storyboardCols > 0 && storyboardRows > 0) {
-            downloadBytes(storyboardUrl, cookie)?.let { bytes ->
+            downloadBytes(storyboardUrl, cookie, cacheDir)?.let { bytes ->
                 extractStoryboard(bytes, storyboardCols, storyboardRows)?.let {
                     MediaCaches.putBiliFrame(cacheKey, it)
                     Log.i("BiliFrames", "storyboard ok ${it.width}x${it.height}")
@@ -97,7 +99,10 @@ object BiliFrames {
         return null
     }
 
-    private fun downloadBytes(url: String, cookie: String): ByteArray? {
+    private fun downloadBytes(url: String, cookie: String, cacheDir: File?): ByteArray? {
+        val cache = cacheDir?.let { MediaDiskCache(File(it, "bili-cache")) }
+        val key = "storyboard:$url"
+        cache?.get(key)?.let { return it }
         return try {
             val request = Request.Builder()
                 .url(url)
@@ -109,7 +114,10 @@ object BiliFrames {
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return null
                 val bytes = response.body?.bytes() ?: return null
-                if (bytes.size > 4 * 1024 * 1024) null else bytes
+                if (bytes.size > 4 * 1024 * 1024) null else {
+                    cache?.put(key, bytes)
+                    bytes
+                }
             }
         } catch (_: Exception) {
             null

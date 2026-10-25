@@ -250,9 +250,10 @@ class ApiClient(
     }
 
     suspend fun biliPreview(url: String): BiliPreview? = withContext(Dispatchers.IO) {
+        cachedBiliPreview(url)?.let { return@withContext it }
         val direct = directBiliPreview(url)
         val worker = if (direct?.summary.isNullOrBlank()) workerBiliPreview(url) else null
-        when {
+        val result = when {
             direct == null -> worker
             worker == null -> direct
             else -> direct.copy(
@@ -262,6 +263,8 @@ class ApiClient(
                 subtitleCount = worker.subtitleCount,
             )
         }
+        result?.let { saveBiliPreview(url, it) }
+        result
     }
 
     /** 手机直连 B 站通常比 Worker 出口更稳；失败再走 Worker。 */
@@ -504,7 +507,8 @@ class ApiClient(
     }.getOrNull()
 
     suspend fun webPreview(url: String): WebPreview? = withContext(Dispatchers.IO) {
-        runCatching {
+        cachedWebPreview(url)?.let { return@withContext it }
+        val result = runCatching {
             val encoded = java.net.URLEncoder.encode(url, "UTF-8")
             val request = Request.Builder()
                 .url("$baseUrl/api/app/web-preview?url=$encoded")
@@ -522,6 +526,8 @@ class ApiClient(
                 )
             }
         }.getOrNull()
+        result?.let { saveWebPreview(url, it) }
+        result
     }
 
     suspend fun uploadMedia(context: Context, uri: Uri): String = withContext(Dispatchers.IO) {
@@ -573,6 +579,79 @@ class ApiClient(
 
     fun mediaHeaders(): Map<String, String> =
         mapOf("Authorization" to "Bearer ${requireToken()}")
+
+    private fun biliKey(url: String): String =
+        "bili:${biliSessdata.hashCode()}:$url"
+
+    private fun cachedBiliPreview(url: String): BiliPreview? {
+        val bytes = diskCache?.get(biliKey(url)) ?: return null
+        return runCatching {
+            val o = JSONObject(String(bytes))
+            val outline = o.optJSONArray("outline")?.let { arr ->
+                (0 until arr.length()).map { arr.optString(it) }
+            } ?: emptyList()
+            BiliPreview(
+                title = o.optString("title"),
+                owner = o.optString("owner"),
+                duration = o.optInt("duration"),
+                desc = o.optString("desc"),
+                summary = o.optString("summary"),
+                outline = outline,
+                subtitle = o.optString("subtitle"),
+                subtitleCount = o.optInt("subtitle_count"),
+                bvid = o.optString("bvid"),
+                cid = o.optLong("cid"),
+                playUrl = o.optString("play_url"),
+                storyboardUrl = o.optString("storyboard_url"),
+                storyboardCols = o.optInt("storyboard_cols"),
+                storyboardRows = o.optInt("storyboard_rows"),
+            )
+        }.getOrNull()
+    }
+
+    private fun saveBiliPreview(url: String, p: BiliPreview) {
+        val outline = JSONArray().apply { p.outline.forEach { put(it) } }
+        val o = JSONObject()
+            .put("title", p.title)
+            .put("owner", p.owner)
+            .put("duration", p.duration)
+            .put("desc", p.desc)
+            .put("summary", p.summary)
+            .put("outline", outline)
+            .put("subtitle", p.subtitle)
+            .put("subtitle_count", p.subtitleCount)
+            .put("bvid", p.bvid)
+            .put("cid", p.cid)
+            .put("play_url", p.playUrl)
+            .put("storyboard_url", p.storyboardUrl)
+            .put("storyboard_cols", p.storyboardCols)
+            .put("storyboard_rows", p.storyboardRows)
+        diskCache?.put(biliKey(url), o.toString().toByteArray())
+    }
+
+    private fun webKey(url: String): String = "web:$url"
+
+    private fun cachedWebPreview(url: String): WebPreview? {
+        val bytes = diskCache?.get(webKey(url)) ?: return null
+        return runCatching {
+            val o = JSONObject(String(bytes))
+            WebPreview(
+                title = o.optString("title"),
+                description = o.optString("description"),
+                site = o.optString("site"),
+                douyin = o.optBoolean("douyin"),
+            )
+        }.getOrNull()
+    }
+
+    private fun saveWebPreview(url: String, p: WebPreview) {
+        val o = JSONObject()
+            .put("title", p.title)
+            .put("description", p.description)
+            .put("site", p.site)
+            .put("douyin", p.douyin)
+        diskCache?.put(webKey(url), o.toString().toByteArray())
+    }
 
     private fun execute(request: Request) = client.newCall(request).execute()
 
