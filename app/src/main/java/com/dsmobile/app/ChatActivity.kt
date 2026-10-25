@@ -39,6 +39,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -59,6 +60,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -69,6 +71,7 @@ import com.dsmobile.app.data.SettingsStore
 import com.dsmobile.app.media.MediaUtils
 import com.dsmobile.app.net.ApiClient
 import com.dsmobile.app.parse.DocumentParser
+import com.dsmobile.app.speech.TtsManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -252,6 +255,7 @@ private fun ChatScreen(
     var busy by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("") }
     var streamingText by remember { mutableStateOf("") }
+    var showSettings by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
     val context = LocalContext.current
@@ -419,7 +423,7 @@ private fun ChatScreen(
                 onClick = { context.startActivity(Intent(context, MainActivity::class.java)) },
             ) { Text("调试") }
             Spacer(Modifier.width(6.dp))
-            OutlinedButton(onClick = onLogout) { Text("重新配对") }
+            OutlinedButton(onClick = { showSettings = true }) { Text("设置") }
         }
         HorizontalDivider()
         LazyColumn(
@@ -429,7 +433,11 @@ private fun ChatScreen(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             items(messages, key = { it.id }) { message ->
-                MessageBubble(message, api)
+                MessageBubble(
+                    message = message,
+                    api = api,
+                    onSpeak = { TtsManager.speak(context, settings, it) },
+                )
             }
             items(pending, key = { "pending-${it.id}" }) { message ->
                 PendingBubble(
@@ -537,7 +545,70 @@ private fun ChatScreen(
                 Text(if (busy) "…" else "发送")
             }
         }
+        if (showSettings) {
+            SettingsDialog(
+                settings = settings,
+                onDismiss = { showSettings = false },
+                onLogout = {
+                    showSettings = false
+                    onLogout()
+                },
+            )
+        }
     }
+}
+
+@Composable
+private fun SettingsDialog(
+    settings: SettingsStore,
+    onDismiss: () -> Unit,
+    onLogout: () -> Unit,
+) {
+    var key by remember { mutableStateOf(settings.azureKey) }
+    var region by remember { mutableStateOf(settings.azureRegion) }
+    var voice by remember { mutableStateOf(settings.azureVoice) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("设置") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Azure TTS（留空则用本地 TTS）", style = MaterialTheme.typography.labelMedium)
+                OutlinedTextField(
+                    value = key,
+                    onValueChange = { key = it },
+                    label = { Text("Azure Speech Key") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = region,
+                    onValueChange = { region = it },
+                    label = { Text("Region") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = voice,
+                    onValueChange = { voice = it },
+                    label = { Text("Voice") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                settings.azureKey = key
+                settings.azureRegion = region
+                settings.azureVoice = voice
+                onDismiss()
+            }) { Text("保存") }
+        },
+        dismissButton = {
+            TextButton(onClick = onLogout) { Text("重新配对") }
+        },
+    )
 }
 
 @Composable
@@ -585,7 +656,11 @@ private fun PendingBubble(
 }
 
 @Composable
-private fun MessageBubble(message: MessageEntity, api: ApiClient) {
+private fun MessageBubble(
+    message: MessageEntity,
+    api: ApiClient,
+    onSpeak: (String) -> Unit,
+) {
     val isUser = message.role == "user"
     val channel = when (message.channel) {
         "mobile" -> "App"
@@ -621,6 +696,9 @@ private fun MessageBubble(message: MessageEntity, api: ApiClient) {
                 }
                 imageKeys.forEach { key ->
                     MessageImage(api, key)
+                }
+                if (!isUser && display.isNotEmpty()) {
+                    TextButton(onClick = { onSpeak(display) }) { Text("朗读") }
                 }
             }
         }

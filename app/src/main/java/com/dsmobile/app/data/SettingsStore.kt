@@ -48,6 +48,18 @@ class SettingsStore(context: Context) {
         get() = prefs.getLong("last_event_id", 0L)
         set(value) = prefs.edit().putLong("last_event_id", value).apply()
 
+    var azureKey: String
+        get() = prefs.getString("azure_key", "") ?: ""
+        set(value) = prefs.edit().putString("azure_key", value.trim()).apply()
+
+    var azureRegion: String
+        get() = prefs.getString("azure_region", "eastus") ?: "eastus"
+        set(value) = prefs.edit().putString("azure_region", value.trim()).apply()
+
+    var azureVoice: String
+        get() = prefs.getString("azure_voice", "zh-CN-XiaoyiNeural") ?: "zh-CN-XiaoyiNeural"
+        set(value) = prefs.edit().putString("azure_voice", value.trim()).apply()
+
     fun clear() {
         prefs.edit().clear().apply()
     }
