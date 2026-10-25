@@ -21,7 +21,7 @@ adb install -r dist/DS-Mobile-0.1.0.apk
 - SHA-256：
 
 ```text
-B6D97C564667C0302F1309B304BA67B6406A42A0B42417EAD1F1E4EB7466580E
+A23FC4CFD1BDBB5C9AAA00FF861F9D2953E72E5F8B0EB23ED26D438FAFAB4796
 ```
 
 ## 已具备
@@ -40,7 +40,7 @@ B6D97C564667C0302F1309B304BA67B6406A42A0B42417EAD1F1E4EB7466580E
 
 - Azure STT 已用内置中文 WAV 和手机麦克风路径在 K60 验证；
 - SSH 公钥登录已支持 RSA；Ed25519 仍不兼容；
-- RAR 只验证了真实 RAR 能被读取，但样本只含旧 `.doc`，尚无 txt/Office RAR 通过样本；
+- RAR4 已验证 244 字符（含 txt/DOCX）；RAR5 暂不支持；
 - 扫描 PDF OCR 未做；
 - QQ/Termux 尚未正式退役；
 - 8 小时稳定性测试此前按用户要求暂缓。
