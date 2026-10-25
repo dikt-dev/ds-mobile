@@ -66,6 +66,9 @@ dependencies {
     implementation("org.apache.sshd:sshd-sftp:2.14.0")
     implementation("org.slf4j:slf4j-simple:2.0.13")
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
+    implementation("com.github.junrar:junrar:7.5.5")
+    implementation("org.apache.commons:commons-compress:1.27.1")
+    implementation("org.tukaani:xz:1.10")
 
     implementation(platform("androidx.compose:compose-bom:2024.12.01"))
     implementation("androidx.compose.ui:ui")

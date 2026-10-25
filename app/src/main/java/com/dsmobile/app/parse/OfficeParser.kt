@@ -19,6 +19,8 @@ object OfficeParser {
             "xlsx" -> parseXlsx(bytes)
             "pptx" -> parsePptx(bytes)
             "zip" -> parseZip(bytes)
+            "rar" -> ArchiveParser.parseRar(bytes)
+            "7z" -> ArchiveParser.parse7z(bytes)
             else -> throw IllegalArgumentException("暂不支持 .$ext")
         }
     }

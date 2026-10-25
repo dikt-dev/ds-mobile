@@ -57,6 +57,7 @@ object ParseSpike {
                 "xlsx-test.xlsx",
                 "pptx-test.pptx",
                 "zip-test.zip",
+                "7z-test.7z",
             ).joinToString("\n") { name ->
                 val data = context.assets.open("test/$name").readBytes()
                 val text = OfficeParser.parse(name, data)
