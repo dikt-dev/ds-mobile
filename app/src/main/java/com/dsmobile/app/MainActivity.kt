@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -99,6 +100,7 @@ class MainActivity : ComponentActivity() {
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .statusBarsPadding()
                 .verticalScroll(rememberScrollState())
                 .padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -107,6 +109,14 @@ class MainActivity : ComponentActivity() {
                 text = "DS-Mobile · 阶段 0 Spike",
                 style = MaterialTheme.typography.headlineSmall,
             )
+            Button(
+                onClick = {
+                    startActivity(Intent(this@MainActivity, ChatActivity::class.java))
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("进入聊天（阶段 1）")
+            }
             Text(
                 text = "目标：前台服务每 3 秒检查 Worker 健康接口，验证划掉后台仍存活。",
                 style = MaterialTheme.typography.bodyMedium,

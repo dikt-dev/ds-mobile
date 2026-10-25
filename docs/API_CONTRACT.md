@@ -34,7 +34,8 @@
 ```
 
 - `pair_code` 由 Worker 侧生成，一次性、5 分钟有效。
-- Token 存 Android Keystore/EncryptedSharedPreferences。
+- 当前 Worker 未配置 `APP_PAIR_CODE` 时，临时复用 `ASTROBOT_API_KEY` 作为配对码；配置后只认 `APP_PAIR_CODE`。
+- Token 存 Android Keystore/EncryptedSharedPreferences（阶段 1 暂用 SharedPreferences，阶段 2 改加密存储）。
 - 后续所有 App 请求带 `Authorization: Bearer <device-token>`。
 
 ### 1.2 错误格式
@@ -60,7 +61,10 @@
 
 ## 2. 消息事件
 
-`GET /api/app/events?after_id=<int>&limit=<1..100>`
+`GET /api/app/events?after_id=<int>&limit=<1..100>&latest=<0|1>`
+
+- `latest=1` 返回最近 N 条（首次进入聊天室用），忽略 `after_id`。
+- 否则返回 `id > after_id` 的增量。
 
 响应：
 
