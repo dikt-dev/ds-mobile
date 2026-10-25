@@ -27,6 +27,7 @@
 - `screenshot-p4-voice.png`：聊天页「图片/文件/语音」入口
 - `screenshot-p4-tts.png`：AI 气泡「朗读」与 TTS 设置后的界面
 - `screenshot-p4-voicebar.png`：AI 语音消息条（文字 + 播放）
+- `screenshot-p4-voice-settings.png`：音色/语速/音高/Style Degree 设置页
 
 ---
 
