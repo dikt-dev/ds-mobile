@@ -306,6 +306,21 @@ private fun openAutostartSettings(context: Context) {
     }
 }
 
+private fun openNotificationSettings(context: Context) {
+    val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+        .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+    try {
+        context.startActivity(intent)
+    } catch (_: Exception) {
+        context.startActivity(
+            Intent(
+                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.parse("package:${context.packageName}"),
+            )
+        )
+    }
+}
+
 @Composable
 private fun ChatScreen(
     settings: SettingsStore,
@@ -960,6 +975,10 @@ private fun ChatScreen(
                     showSettings = false
                     biliLoginLauncher.launch(Intent(context, BiliLoginActivity::class.java))
                 },
+                onNotificationSettings = {
+                    showSettings = false
+                    openNotificationSettings(context)
+                },
                 onDismiss = { showSettings = false },
                 onLogout = {
                     showSettings = false
@@ -1062,6 +1081,7 @@ private fun VoiceComposer(
 private fun SettingsDialog(
     settings: SettingsStore,
     onBiliLogin: () -> Unit,
+    onNotificationSettings: () -> Unit,
     onDismiss: () -> Unit,
     onLogout: () -> Unit,
 ) {
@@ -1134,6 +1154,7 @@ private fun SettingsDialog(
                     modifier = Modifier.fillMaxWidth(),
                 )
                 TextButton(onClick = onBiliLogin) { Text("在 App 内登录 B 站") }
+                TextButton(onClick = onNotificationSettings) { Text("通知设置 / 悬浮通知权限") }
 
                 Text("SSH 公钥（RSA authorized_keys，可留空）", style = MaterialTheme.typography.labelMedium)
                 OutlinedTextField(

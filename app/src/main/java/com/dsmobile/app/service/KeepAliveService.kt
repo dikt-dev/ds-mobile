@@ -10,7 +10,10 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.media.AudioAttributes
 import android.media.RingtoneManager
+import android.os.Build
 import android.os.IBinder
+import android.os.VibrationEffect
+import android.os.Vibrator
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
@@ -49,15 +52,24 @@ class KeepAliveService : Service() {
         private const val LEGACY_MESSAGE_CHANNEL_ID = "ds_messages"
         private const val NOTIFICATION_ID = 1001
         private const val MESSAGE_NOTIFICATION_ID = 2001
+        private const val MESSAGE_NOTIFICATION_TAG = "ds_message"
         private const val HEALTH_URL = "https://fae.us.ci/api/health"
 
         @Volatile
         private var unreadCount: Int = 0
+        private val postedMessageNotificationIds =
+            java.util.Collections.synchronizedSet(mutableSetOf<Int>())
 
         /** App 打开聊天页时清掉消息通知与角标。 */
         fun clearMessageNotification(context: Context) {
-            context.getSystemService(NotificationManager::class.java)
-                .cancel(MESSAGE_NOTIFICATION_ID)
+            val manager = context.getSystemService(NotificationManager::class.java)
+            manager.cancel(MESSAGE_NOTIFICATION_ID)
+            synchronized(postedMessageNotificationIds) {
+                for (id in postedMessageNotificationIds) {
+                    manager.cancel(MESSAGE_NOTIFICATION_TAG, id)
+                }
+                postedMessageNotificationIds.clear()
+            }
             unreadCount = 0
         }
 
@@ -189,7 +201,10 @@ class KeepAliveService : Service() {
                         val messageId = push.messageId
                         val alreadyNotified = messageId != null && messageId in notifiedMessageIds
                         if (!appVisible && !alreadyNotified && push.content.isNotBlank()) {
-                            notifyProactive(push.content)
+                            notifyProactive(
+                                push.content,
+                                messageId ?: push.queueId.toLong(),
+                            )
                             if (messageId != null) notifiedMessageIds.add(messageId)
                         }
                     }
@@ -260,15 +275,16 @@ class KeepAliveService : Service() {
         notifyText(
             if (message.proactiveKind != null) "大肥鱼 · 主动消息" else "大肥鱼",
             message.content,
+            message.id,
         )
     }
 
     /** 队列推送：即使 events 轮询还没到，也先把主动消息弹出来。 */
-    private fun notifyProactive(content: String) {
-        notifyText("大肥鱼 · 主动消息", content)
+    private fun notifyProactive(content: String, sourceId: Long) {
+        notifyText("大肥鱼 · 主动消息", content, sourceId)
     }
 
-    private fun notifyText(title: String, raw: String) {
+    private fun notifyText(title: String, raw: String, sourceId: Long) {
         val manager = getSystemService(NotificationManager::class.java)
         if (!manager.areNotificationsEnabled()) return
         val text = replaceFaceMarkers(raw).replace(Regex("\\s+"), " ").trim().take(160)
@@ -279,6 +295,7 @@ class KeepAliveService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         unreadCount += 1
+        Log.i(TAG, "notify title=$title visible=$appVisible unread=$unreadCount")
         val notification = NotificationCompat.Builder(this, MESSAGE_CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(text)
@@ -287,7 +304,7 @@ class KeepAliveService : Service() {
             .setAutoCancel(true)
             .setOnlyAlertOnce(false)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
             .setDefaults(NotificationCompat.DEFAULT_ALL)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setNumber(unreadCount)
@@ -296,7 +313,44 @@ class KeepAliveService : Service() {
             .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION))
             .setContentIntent(pendingIntent)
             .build()
-        manager.notify(MESSAGE_NOTIFICATION_ID, notification)
+        // 每条消息用独立 ID：复用同一个 ID 只会“更新通知”，系统不会再弹悬浮横幅
+        val notificationId = MESSAGE_NOTIFICATION_ID + ((sourceId % 100000L).toInt())
+        manager.notify(MESSAGE_NOTIFICATION_TAG, notificationId, notification)
+        postedMessageNotificationIds.add(notificationId)
+        alertFallback()
+    }
+
+    /**
+     * 小米/HyperOS 有时会静默掉通知渠道的提示音和震动；
+     * 手动补一次，保证“有通知就有声音/震动”。
+     */
+    private fun alertFallback() {
+        try {
+            RingtoneManager.getRingtone(
+                this,
+                RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION),
+            )?.play()
+        } catch (e: Exception) {
+            Log.w(TAG, "notification sound failed: ${e.message}")
+        }
+        try {
+            val vibrator = getSystemService(Vibrator::class.java)
+            if (vibrator != null && vibrator.hasVibrator()) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    vibrator.vibrate(
+                        VibrationEffect.createWaveform(
+                            longArrayOf(0, 220, 120, 220),
+                            -1,
+                        ),
+                    )
+                } else {
+                    @Suppress("DEPRECATION")
+                    vibrator.vibrate(longArrayOf(0, 220, 120, 220), -1)
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "notification vibration failed: ${e.message}")
+        }
     }
 
     private fun checkHealth(): String {
