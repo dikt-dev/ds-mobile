@@ -1976,6 +1976,10 @@ private fun MessageBubble(
                 horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
                 verticalAlignment = Alignment.Bottom,
             ) {
+            if (isUser) {
+                ReadStatus(failed = false)
+                Spacer(Modifier.width(4.dp))
+            }
             Surface(
                 modifier = Modifier.widthIn(max = 300.dp),
                 shape = if (isUser) {
@@ -2024,10 +2028,6 @@ private fun MessageBubble(
                         WebLinkCard(api, url)
                     }
                 }
-            }
-            if (isUser) {
-                Spacer(Modifier.width(4.dp))
-                ReadStatus(failed = false)
             }
             }
         }
