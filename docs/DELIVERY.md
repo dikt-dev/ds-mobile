@@ -21,7 +21,7 @@ adb install -r dist/DS-Mobile-0.1.0.apk
 - SHA-256：
 
 ```text
-A77EC255EDB6BAEBC04F62990E99BD4EAF0D2E20DC56FC31A925259F948010B5
+43E0779F026D86689EFA006363F9BFAB3967D9E8833FA76B3CCBE190DFE7BF03
 ```
 
 ## 已具备
@@ -38,7 +38,7 @@ A77EC255EDB6BAEBC04F62990E99BD4EAF0D2E20DC56FC31A925259F948010B5
 
 ## 已知缺口
 
-- ASR 真实语音转写尚未在 K60 上验收；
+- Azure STT 已用内置中文 WAV 在 K60 验证；手机麦克风真实说话录音转写还差最后一次验收；
 - SSH 公钥登录因 MINA KEX 兼容问题暂未启用；
 - RAR 只验证了真实 RAR 能被读取，但样本只含旧 `.doc`，尚无 txt/Office RAR 通过样本；
 - 扫描 PDF OCR 未做；
