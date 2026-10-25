@@ -19,6 +19,8 @@ android {
 
     buildTypes {
         release {
+            // 私人自用：用 debug 签名，安装 release 包获得更顺的 Compose/R8 运行性能。
+            signingConfig = signingConfigs.getByName("debug")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

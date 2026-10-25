@@ -219,12 +219,13 @@ class ApiClient(
         text: String,
         dataUrl: String,
         clientMessageId: String? = null,
-    ): String = chatWithImages(text, listOf(dataUrl), clientMessageId)
+    ): String = chatWithImages(text, listOf(dataUrl), clientMessageId, transient = false)
 
     suspend fun chatWithImages(
         text: String,
         dataUrls: List<String>,
         clientMessageId: String? = null,
+        transient: Boolean = false,
     ): String = withContext(Dispatchers.IO) {
         val parts = JSONArray()
         if (text.isNotBlank()) parts.put(JSONObject().put("type", "text").put("text", text))
@@ -232,7 +233,13 @@ class ApiClient(
             parts.put(
                 JSONObject()
                     .put("type", "image_url")
-                    .put("image_url", JSONObject().put("url", url)),
+                    .put(
+                        "image_url",
+                        JSONObject().put(
+                            "url",
+                            if (transient) "$url#__transient" else url,
+                        ),
+                    ),
             )
         }
         val messages = JSONArray().put(JSONObject().put("role", "user").put("content", parts))

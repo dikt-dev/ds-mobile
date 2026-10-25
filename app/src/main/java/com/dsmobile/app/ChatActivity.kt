@@ -376,6 +376,7 @@ private fun ChatScreen(
                     outgoing,
                     frames.map { bitmapToDataUrl(it) },
                     pendingMessage.clientMessageId,
+                    transient = true,
                 )
                 frames.forEach { it.recycle() }
             } else {
@@ -552,13 +553,21 @@ private fun ChatScreen(
 
     val isTyping = busy && streamingText.isEmpty() && isTypingStatus(status)
     val itemCount = messages.size + pending.size + if (streamingText.isNotEmpty() || isTyping) 1 else 0
+    val scrollToLatest: () -> Unit = {
+        scope.launch {
+            val count = messages.size + pending.size + if (streamingText.isNotEmpty() || isTyping) 1 else 0
+            if (count > 0 && !listState.isScrollInProgress) {
+                listState.animateScrollToItem(count - 1)
+            }
+        }
+    }
     LaunchedEffect(itemCount) {
         if (itemCount <= 0) return@LaunchedEffect
         if (!initialScrollDone) {
             // 首次打开直接定位到最新消息，不走 animateScrollToItem，避免看到从上面滑下来的过程。
             listState.scrollToItem(itemCount - 1)
             initialScrollDone = true
-        } else {
+        } else if (!listState.isScrollInProgress) {
             listState.animateScrollToItem(itemCount - 1)
         }
     }
@@ -603,7 +612,11 @@ private fun ChatScreen(
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 14.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            itemsIndexed(messages, key = { _, message -> message.id }) { index, message ->
+            itemsIndexed(
+                items = messages,
+                key = { _, message -> message.id },
+                contentType = { _, _ -> "message" },
+            ) { index, message ->
                 if (index == 0 || messageDay(messages[index - 1].createdAt) != messageDay(message.createdAt)) {
                     DayDivider(messageDay(message.createdAt))
                 }
@@ -616,6 +629,7 @@ private fun ChatScreen(
                     animateSegments = animateSegments,
                     onSpeak = { TtsManager.speak(context, settings, it) },
                     onPrefetch = { TtsManager.prefetch(context, settings, it) },
+                    onReveal = scrollToLatest,
                 )
             }
             items(pending, key = { "pending-${it.id}" }) { message ->
@@ -643,7 +657,7 @@ private fun ChatScreen(
             }
             if (streamingText.isNotEmpty()) {
                 item(key = "streaming") {
-                    StreamingBubble(streamingText)
+                    StreamingBubble(streamingText, onReveal = scrollToLatest)
                 }
             } else if (isTyping) {
                 item(key = "typing") {
@@ -1341,6 +1355,7 @@ private fun SegmentedMessage(
     animate: Boolean,
     onSpeak: (String) -> Unit,
     onPrefetch: (String) -> Unit,
+    onReveal: () -> Unit,
 ) {
     val voices = segments.filterIsInstance<ChatSegment.Voice>().map { it.text }
     LaunchedEffect(voices) {
@@ -1353,8 +1368,9 @@ private fun SegmentedMessage(
     LaunchedEffect(messageId, segments.size, animate) {
         if (animate && !revealedMessageIds.contains(messageId)) {
             while (visibleCount < segments.size) {
-                delay(180)
+                delay(1000)
                 visibleCount++
+                onReveal()
             }
             revealedMessageIds.add(messageId)
         }
@@ -1382,7 +1398,7 @@ private fun SegmentedMessage(
                         ),
                         color = Color.White,
                         border = BorderStroke(1.dp, Color(0x14000000)),
-                        shadowElevation = 1.dp,
+                        shadowElevation = 0.dp,
                     ) {
                         Text(
                             segment.text,
@@ -1421,7 +1437,7 @@ private fun VoiceMessageBubble(text: String, onPlay: () -> Unit) {
                 shape = RoundedCornerShape(20.dp),
                 color = Color.White,
                 border = BorderStroke(1.dp, Color(0x14000000)),
-                shadowElevation = 1.dp,
+                shadowElevation = 0.dp,
             ) {
                 Row(
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
@@ -1635,13 +1651,14 @@ private fun webMetaText(preview: WebPreview, url: String): String = buildString 
 }
 
 @Composable
-private fun StreamingBubble(text: String) {
+private fun StreamingBubble(text: String, onReveal: () -> Unit) {
     val segments = parseChatSegments(text)
     var visibleCount by remember { mutableStateOf(1) }
     LaunchedEffect(segments.size) {
         while (visibleCount < segments.size) {
-            delay(160)
+            delay(1000)
             visibleCount++
+            onReveal()
         }
     }
     Row(
@@ -1672,7 +1689,7 @@ private fun StreamingBubble(text: String) {
                             ),
                             color = Color.White,
                             border = BorderStroke(1.dp, Color(0x14000000)),
-                            shadowElevation = 1.dp,
+                            shadowElevation = 0.dp,
                         ) {
                             Text(
                                 segment.text,
@@ -1705,7 +1722,7 @@ private fun TypingBubble() {
             shape = RoundedCornerShape(topStart = 4.dp, topEnd = 18.dp, bottomEnd = 18.dp, bottomStart = 18.dp),
             color = Color.White,
             border = BorderStroke(1.dp, Color(0x14000000)),
-            shadowElevation = 1.dp,
+            shadowElevation = 0.dp,
         ) {
             Text(
                 "大肥鱼 · 正在输入…",
@@ -1762,6 +1779,7 @@ private fun MessageBubble(
     animateSegments: Boolean,
     onSpeak: (String) -> Unit,
     onPrefetch: (String) -> Unit,
+    onReveal: () -> Unit,
 ) {
     val isUser = message.role == "user"
     val channel = when (message.channel) {
@@ -1839,13 +1857,15 @@ private fun MessageBubble(
         .replace(Regex("\\[图片:([^\\]]+)]"), "")
         .let { webPattern.replace(it, "") }
         .trim()
-    val segments = if (
-        !isUser && fileMatch == null && imageKeys.isEmpty() && mediaItems.isEmpty() &&
-        biliUrls.isEmpty() && webUrls.isEmpty()
-    ) {
-        parseChatSegments(segmentSource)
-    } else {
-        emptyList()
+    val segments = remember(message.id, segmentSource) {
+        if (
+            !isUser && fileMatch == null && imageKeys.isEmpty() && mediaItems.isEmpty() &&
+            biliUrls.isEmpty() && webUrls.isEmpty()
+        ) {
+            parseChatSegments(segmentSource)
+        } else {
+            emptyList()
+        }
     }
     if (segments.size > 1 || segments.any { it is ChatSegment.Voice }) {
         val time = messageTime(message.createdAt)
@@ -1858,7 +1878,7 @@ private fun MessageBubble(
                 append(time)
             }
         }
-        SegmentedMessage(message.id, label, segments, animateSegments, onSpeak, onPrefetch)
+        SegmentedMessage(message.id, label, segments, animateSegments, onSpeak, onPrefetch, onReveal)
         return
     }
 
@@ -1895,7 +1915,7 @@ private fun MessageBubble(
                 },
                 color = if (isUser) Color(0xFFE8E0FA) else Color.White,
                 border = if (isUser) null else BorderStroke(1.dp, Color(0x14000000)),
-                shadowElevation = 1.dp,
+                shadowElevation = 0.dp,
             ) {
                 Column(
                     modifier = Modifier.padding(horizontal = 13.dp, vertical = 10.dp),
