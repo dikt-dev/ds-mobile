@@ -2,7 +2,7 @@
 
 > 日期：2026-10-25  
 > 目标：不经过 QQ，App 内直接与 `ds-memory` Worker 聊天。  
-> 状态：**文本聊天 MVP + 后台通知 + Token 加密 + 重启自启 + 发送 outbox/重试已跑通；流式待补**
+> 状态：**文字聊天、SSE 流式、后台通知、加密 Token、重启自启、outbox 重试已跑通；幂等待补**
 
 ---
 
@@ -22,6 +22,7 @@
 | 后台通知 | ✅ App 在后台收到助手消息时弹 `DS-Mobile 消息` 通知 |
 | 重启自启 | ✅ HyperOS 白名单配置后，重启自动启动服务并收到通知 |
 | 发送 outbox | ✅ 断网发送保留气泡，恢复网络后重试成功 |
+| SSE 流式 | ✅ `stream:true` + SSE delta 渲染，完成后落 Room |
 | Token 存储 | ✅ EncryptedSharedPreferences（Keystore 主密钥），旧明文自动迁移 |
 | K60 实测 | ✅ 发送 `App test reply OK`，收到 AI 回复；后台通知测试成功 |
 
@@ -33,6 +34,8 @@
 - `screenshot-p1-secure.png`：加密存储迁移后的聊天页
 - `screenshot-p1-outbox-offline.png`：断网后“待发送/重试”
 - `screenshot-p1-outbox-retry2.png`：恢复网络重试成功
+- `screenshot-p1-streaming.png`：流式发送中
+- `screenshot-p1-streaming-done.png`：流式完成
 
 ---
 
@@ -59,16 +62,14 @@ App 配对 → 设备 Token → ChatActivity
 
 ## 3. 当前限制
 
-1. 发送不是流式；先拿到完整回复再拉事件。
-2. 重试如果遇到“服务端已落库但客户端超时”，仍可能重复一条，后续加 `client_message_id` 幂等。
-3. 历史里超长 Web 消息会截断显示 30 行。
-4. Token 迁移后旧 `ds_mobile_settings.xml` 只剩空壳，不影响使用。
+1. 重试如果遇到“服务端已落库但客户端超时”，仍可能重复一条，后续加 `client_message_id` 幂等。
+2. 历史里超长 Web 消息会截断显示 30 行。
+3. Token 迁移后旧 `ds_mobile_settings.xml` 只剩空壳，不影响使用。
 
 ---
 
 ## 4. 下一轮任务
 
-- SSE 流式回复；
 - `client_message_id` 服务端幂等；
 - 通知去重/免打扰；
 - 8 小时后台稳定性测试；

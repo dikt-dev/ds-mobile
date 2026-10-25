@@ -56,8 +56,10 @@ import com.dsmobile.app.data.MessageEntity
 import com.dsmobile.app.data.PendingMessageEntity
 import com.dsmobile.app.data.SettingsStore
 import com.dsmobile.app.net.ApiClient
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class ChatActivity : ComponentActivity() {
 
@@ -235,6 +237,7 @@ private fun ChatScreen(
     var input by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("") }
+    var streamingText by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
     val context = LocalContext.current
@@ -272,10 +275,9 @@ private fun ChatScreen(
         }
     }
 
-    LaunchedEffect(messages.size + pending.size) {
-        if (messages.isNotEmpty() || pending.isNotEmpty()) {
-            listState.animateScrollToItem((messages.size + pending.size - 1).coerceAtLeast(0))
-        }
+    LaunchedEffect(messages.size + pending.size + if (streamingText.isNotEmpty()) 1 else 0) {
+        val count = messages.size + pending.size + if (streamingText.isNotEmpty()) 1 else 0
+        if (count > 0) listState.animateScrollToItem(count - 1)
     }
 
     Column(modifier = Modifier.fillMaxSize().statusBarsPadding().imePadding()) {
@@ -324,6 +326,11 @@ private fun ChatScreen(
                     },
                 )
             }
+            if (streamingText.isNotEmpty()) {
+                item(key = "streaming") {
+                    StreamingBubble(streamingText)
+                }
+            }
         }
         if (status.isNotEmpty()) {
             Text(
@@ -352,17 +359,25 @@ private fun ChatScreen(
                     input = ""
                     busy = true
                     status = "发送中…"
+                    streamingText = ""
                     scope.launch {
                         val pendingMessage = PendingMessageEntity(content = text)
                         val pendingId = dao.insertPending(pendingMessage)
                         try {
-                            api.chat(text)
+                            api.chatStream(text) { delta ->
+                                withContext(Dispatchers.Main) {
+                                    streamingText += delta
+                                    status = "接收中…"
+                                }
+                            }
                             dao.deletePending(pendingMessage.copy(id = pendingId))
                             delay(300)
                             syncEvents()
+                            streamingText = ""
                             status = ""
                         } catch (e: Exception) {
                             status = "发送失败：${e.message}，可在下方重试"
+                            streamingText = ""
                         } finally {
                             busy = false
                         }
@@ -370,6 +385,22 @@ private fun ChatScreen(
                 },
             ) {
                 Text(if (busy) "…" else "发送")
+            }
+        }
+    }
+}
+
+@Composable
+private fun StreamingBubble(text: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.Start,
+    ) {
+        Card(modifier = Modifier.fillMaxWidth(0.86f)) {
+            Column(modifier = Modifier.padding(10.dp)) {
+                Text("App · 大肥鱼 · 正在输入", style = MaterialTheme.typography.labelSmall)
+                Spacer(Modifier.height(4.dp))
+                Text(text, style = MaterialTheme.typography.bodyMedium)
             }
         }
     }

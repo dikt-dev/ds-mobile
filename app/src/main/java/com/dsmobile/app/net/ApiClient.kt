@@ -103,6 +103,49 @@ class ApiClient(
         }
     }
 
+    /** SSE 流式回复；每段 delta 回调一次，返回完整文本。 */
+    suspend fun chatStream(text: String, onDelta: suspend (String) -> Unit): String =
+        withContext(Dispatchers.IO) {
+            val messages = JSONArray().put(JSONObject().put("role", "user").put("content", text))
+            val body = JSONObject()
+                .put("messages", messages)
+                .put("stream", true)
+                .toString()
+            val request = Request.Builder()
+                .url("$baseUrl/v1/chat/completions")
+                .header("Authorization", "Bearer ${requireToken()}")
+                .header("X-Client-Channel", "mobile")
+                .post(body.toRequestBody(jsonType))
+                .build()
+            execute(request).use { response ->
+                if (!response.isSuccessful) {
+                    throw ApiException(errorText(response.code, response.body?.string().orEmpty()))
+                }
+                val source = response.body?.source() ?: throw ApiException("回复为空")
+                val builder = StringBuilder()
+                while (!source.exhausted()) {
+                    val line = source.readUtf8Line() ?: break
+                    if (!line.startsWith("data:")) continue
+                    val data = line.removePrefix("data:").trim()
+                    if (data == "[DONE]") break
+                    if (data.isEmpty()) continue
+                    val delta = runCatching {
+                        JSONObject(data)
+                            .optJSONArray("choices")
+                            ?.optJSONObject(0)
+                            ?.optJSONObject("delta")
+                            ?.optString("content")
+                            .orEmpty()
+                    }.getOrDefault("")
+                    if (delta.isNotEmpty()) {
+                        builder.append(delta)
+                        onDelta(delta)
+                    }
+                }
+                builder.toString().ifBlank { throw ApiException("回复为空") }
+            }
+        }
+
     private fun execute(request: Request) = client.newCall(request).execute()
 
     private fun requireToken(): String = token ?: throw ApiException("设备未配对")
