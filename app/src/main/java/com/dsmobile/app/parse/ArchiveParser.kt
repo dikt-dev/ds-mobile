@@ -11,6 +11,14 @@ object ArchiveParser {
     private val supported = setOf("txt", "md", "csv", "json", "docx", "xlsx", "pptx")
 
     fun parseRar(bytes: ByteArray): String {
+        if (bytes.size >= 8 &&
+            bytes[0] == 0x52.toByte() && bytes[1] == 0x61.toByte() &&
+            bytes[2] == 0x72.toByte() && bytes[3] == 0x21.toByte() &&
+            bytes[4] == 0x1A.toByte() && bytes[5] == 0x07.toByte() &&
+            bytes[6] == 0x01.toByte()
+        ) {
+            throw IllegalStateException("暂不支持 RAR5，请改用 RAR4 或 ZIP")
+        }
         val tmp = File.createTempFile("ds-rar-", ".rar")
         return try {
             tmp.writeBytes(bytes)
