@@ -1148,44 +1148,72 @@ private fun SegmentedMessage(
 private fun VoiceMessageBubble(text: String, onPlay: () -> Unit) {
     val seconds = (text.length / 5).coerceIn(2, 60)
     val width = (176 + seconds * 2).coerceAtMost(268).dp
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.Start,
+    var showTranscript by remember(text) { mutableStateOf(false) }
+    Column(
+        modifier = Modifier.widthIn(max = 300.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Surface(
-            modifier = Modifier
-                .width(width)
-                .clip(RoundedCornerShape(20.dp))
-                .clickable { onPlay() },
-            shape = RoundedCornerShape(20.dp),
-            color = Color.White,
-            border = BorderStroke(1.dp, Color(0x14000000)),
-            shadowElevation = 1.dp,
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
-                verticalAlignment = Alignment.CenterVertically,
+            Surface(
+                modifier = Modifier
+                    .width(width)
+                    .clip(RoundedCornerShape(20.dp))
+                    .clickable { onPlay() },
+                shape = RoundedCornerShape(20.dp),
+                color = Color.White,
+                border = BorderStroke(1.dp, Color(0x14000000)),
+                shadowElevation = 1.dp,
             ) {
-                Surface(
-                    shape = CircleShape,
-                    color = Color(0xFF7C5CBF),
-                    modifier = Modifier.size(30.dp),
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Text(
-                            "▶",
-                            color = Color.White,
-                            style = MaterialTheme.typography.labelMedium,
-                        )
+                    Surface(
+                        shape = CircleShape,
+                        color = Color(0xFF7C5CBF),
+                        modifier = Modifier.size(30.dp),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                "▶",
+                                color = Color.White,
+                                style = MaterialTheme.typography.labelMedium,
+                            )
+                        }
                     }
+                    Spacer(Modifier.width(9.dp))
+                    VoiceWaveform(color = Color(0xFF7C5CBF), modifier = Modifier.weight(1f))
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        formatDuration(seconds),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Color(0xFF666666),
+                    )
                 }
-                Spacer(Modifier.width(9.dp))
-                VoiceWaveform(color = Color(0xFF7C5CBF), modifier = Modifier.weight(1f))
-                Spacer(Modifier.width(8.dp))
+            }
+            Spacer(Modifier.width(4.dp))
+            TextButton(
+                onClick = { showTranscript = !showTranscript },
+                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+            ) {
+                Text(if (showTranscript) "收起" else "转文字", style = MaterialTheme.typography.labelSmall)
+            }
+        }
+        if (showTranscript) {
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = Color(0xFFF5F3FA),
+                border = BorderStroke(1.dp, Color(0x12000000)),
+            ) {
                 Text(
-                    formatDuration(seconds),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = Color(0xFF666666),
+                    text,
+                    modifier = Modifier.padding(horizontal = 11.dp, vertical = 8.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFF444444),
+                    maxLines = 8,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
