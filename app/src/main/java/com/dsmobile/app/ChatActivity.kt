@@ -44,8 +44,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -97,7 +95,6 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
@@ -346,6 +343,7 @@ private fun ChatScreen(
     }
     val messages by dao.observe().collectAsState(initial = emptyList())
     val pending by dao.observePending().collectAsState(initial = emptyList())
+    val reversedMessages = remember(messages) { messages.asReversed() }
     var input by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("") }
@@ -743,53 +741,35 @@ private fun ChatScreen(
         focusManager.clearFocus()
     }
 
-    val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
-
-    // 键盘动画期间视口会连续变化。每隔一小段时间贴一次底，
-    // 让列表跟随输入框向上走，而不是等动画结束后才跳一下。
-    LaunchedEffect(imeVisible, itemCount) {
-        if (imeVisible && itemCount > 0) {
-            stickToBottom = true
-            repeat(10) {
-                delay(90)
-                val last = listState.layoutInfo.totalItemsCount - 1
-                if (last >= 0) listState.scrollToItem(last)
-            }
-        }
-    }
     LaunchedEffect(listState) {
-        snapshotFlow { listState.isScrollInProgress to listState.canScrollForward }
-            .collect { (scrolling, canForward) ->
-                if (scrolling) {
-                    if (canForward) stickToBottom = false
-                } else {
-                    stickToBottom = !canForward
-                }
-            }
+        snapshotFlow {
+            listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
+        }.collect { (index, offset) ->
+            // reverseLayout 下 index=0 + offset=0 才是真正贴底
+            stickToBottom = index == 0 && offset == 0
+        }
     }
     val scrollToLatest: () -> Unit = {
         scope.launch {
             if (!stickToBottom) return@launch
             delay(120)
-            val count = messages.size + pending.size + if (streamingText.isNotEmpty() || isTyping) 1 else 0
-            if (count > 0 && !listState.isScrollInProgress) {
-                listState.animateScrollToItem(count)
+            if (itemCount > 0 && !listState.isScrollInProgress) {
+                listState.animateScrollToItem(0)
             }
         }
     }
     LaunchedEffect(itemCount) {
         if (itemCount <= 0) return@LaunchedEffect
         if (!initialScrollDone) {
-            // 首次打开等列表完成测量后再直接贴底，避免长消息/图片高度未算完导致差一截。
+            // reverseLayout 的 index 0 就是底部；首次打开直接定位。
             repeat(4) {
-                listState.scrollToItem(itemCount)
+                listState.scrollToItem(0)
                 withFrameNanos { }
-                delay(60)
+                delay(40)
             }
-            listState.scrollToItem(itemCount)
             initialScrollDone = true
         } else if (stickToBottom && !listState.isScrollInProgress) {
-            listState.animateScrollToItem(itemCount)
+            listState.animateScrollToItem(0)
         }
     }
 
@@ -878,6 +858,7 @@ private fun ChatScreen(
         }
         LazyColumn(
             state = listState,
+            reverseLayout = true,
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
@@ -885,27 +866,17 @@ private fun ChatScreen(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            itemsIndexed(
-                items = messages,
-                key = { _, message -> message.id },
-                contentType = { _, _ -> "message" },
-            ) { index, message ->
-                if (index == 0 || messageDay(messages[index - 1].createdAt) != messageDay(message.createdAt)) {
-                    DayDivider(messageDay(message.createdAt))
+            // reverseLayout：index 0 在底部，所以“正在输入/未发送”放在最前面。
+            if (streamingText.isNotEmpty()) {
+                item(key = "streaming") {
+                    StreamingBubble(streamingText, onReveal = scrollToLatest)
                 }
-                MessageBubble(
-                    message = message,
-                    api = api,
-                    biliCookie = settings.biliCookie.ifBlank {
-                        if (settings.biliSessdata.isBlank()) "" else "SESSDATA=${settings.biliSessdata}"
-                    },
-                    animateSegments = animateSegments,
-                    onSpeak = { TtsManager.speak(context, settings, it) },
-                    onPrefetch = { TtsManager.prefetch(context, settings, it) },
-                    onReveal = scrollToLatest,
-                )
+            } else if (isTyping) {
+                item(key = "typing") {
+                    TypingBubble()
+                }
             }
-            items(pending, key = { "pending-${it.id}" }) { message ->
+            items(pending.asReversed(), key = { "pending-${it.id}" }) { message ->
                 PendingBubble(
                     message = message,
                     busy = busy,
@@ -932,17 +903,26 @@ private fun ChatScreen(
                     },
                 )
             }
-            if (streamingText.isNotEmpty()) {
-                item(key = "streaming") {
-                    StreamingBubble(streamingText, onReveal = scrollToLatest)
+            itemsIndexed(
+                items = reversedMessages,
+                key = { _, message -> message.id },
+                contentType = { _, _ -> "message" },
+            ) { index, message ->
+                val older = reversedMessages.getOrNull(index + 1)
+                if (older == null || messageDay(older.createdAt) != messageDay(message.createdAt)) {
+                    DayDivider(messageDay(message.createdAt))
                 }
-            } else if (isTyping) {
-                item(key = "typing") {
-                    TypingBubble()
-                }
-            }
-            item(key = "bottom-sentinel") {
-                Spacer(Modifier.height(1.dp))
+                MessageBubble(
+                    message = message,
+                    api = api,
+                    biliCookie = settings.biliCookie.ifBlank {
+                        if (settings.biliSessdata.isBlank()) "" else "SESSDATA=${settings.biliSessdata}"
+                    },
+                    animateSegments = animateSegments,
+                    onSpeak = { TtsManager.speak(context, settings, it) },
+                    onPrefetch = { TtsManager.prefetch(context, settings, it) },
+                    onReveal = scrollToLatest,
+                )
             }
         }
         if (status.contains("失败") || status.startsWith("录音") || status.startsWith("转写")) {
