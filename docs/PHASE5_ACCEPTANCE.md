@@ -54,7 +54,7 @@ zip-test.zip: 153 字符
 ## 3. 待验收/下一步
 
 - 文件选择器直接选 DOCX/XLSX/PPTX/ZIP/7z 的端到端测试；
-- RAR5 支持（junrar 7.5.5 报 `UnsupportedRarV5Exception`）；
+- RAR5 支持（junrar 7.5.5 不支持；现在会明确提示“暂不支持 RAR5，请改用 RAR4 或 ZIP”）；
 - OCR 目前最多 10 页，后续可做页数/耗时选择；
 - 扫描 PDF OCR；
 - 超长文本分段/摘要；
