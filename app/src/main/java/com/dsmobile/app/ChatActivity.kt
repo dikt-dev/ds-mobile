@@ -1812,26 +1812,33 @@ private fun PendingBubble(
             color = Color(0xFF888888),
             modifier = Modifier.padding(end = 6.dp, bottom = 3.dp),
         )
-        Surface(
-            modifier = Modifier.widthIn(max = 300.dp),
-            shape = RoundedCornerShape(topStart = 18.dp, topEnd = 4.dp, bottomEnd = 18.dp, bottomStart = 18.dp),
-            color = Color(0xFFE8E0FA),
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.Bottom,
         ) {
-            Column(modifier = Modifier.padding(horizontal = 13.dp, vertical = 10.dp)) {
-                Text(
-                    stripBiliMeta(message.content),
-                    style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 30,
-                    overflow = TextOverflow.Ellipsis,
-                    color = Color(0xFF1F1F1F),
-                )
-                if (failed) {
-                    TextButton(onClick = onRetry, enabled = !busy) { Text("重试") }
+            if (failed) {
+                ReadStatus(failed = true)
+                Spacer(Modifier.width(4.dp))
+            }
+            Surface(
+                modifier = Modifier.widthIn(max = 300.dp),
+                shape = RoundedCornerShape(topStart = 18.dp, topEnd = 4.dp, bottomEnd = 18.dp, bottomStart = 18.dp),
+                color = Color(0xFFE8E0FA),
+            ) {
+                Column(modifier = Modifier.padding(horizontal = 13.dp, vertical = 10.dp)) {
+                    Text(
+                        stripBiliMeta(message.content),
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 30,
+                        overflow = TextOverflow.Ellipsis,
+                        color = Color(0xFF1F1F1F),
+                    )
+                    if (failed) {
+                        TextButton(onClick = onRetry, enabled = !busy) { Text("重试") }
+                    }
                 }
             }
-        }
-        if (failed) {
-            ReadStatus(failed = true)
         }
     }
 }
