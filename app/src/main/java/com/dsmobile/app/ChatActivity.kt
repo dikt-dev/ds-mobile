@@ -278,7 +278,9 @@ private fun ChatScreen(
     onLogout: () -> Unit,
 ) {
     val dao = remember { db.messageDao() }
-    val api = remember(settings.baseUrl, token) { ApiClient(settings.baseUrl, token) }
+    val api = remember(settings.baseUrl, token, settings.biliSessdata) {
+        ApiClient(settings.baseUrl, token, settings.biliSessdata)
+    }
     val messages by dao.observe().collectAsState(initial = emptyList())
     val pending by dao.observePending().collectAsState(initial = emptyList())
     var input by remember { mutableStateOf("") }
@@ -695,6 +697,7 @@ private fun SettingsDialog(
     var rate by remember { mutableStateOf(settings.azureRate) }
     var pitch by remember { mutableStateOf(settings.azurePitch) }
     var styleDegree by remember { mutableStateOf(settings.azureStyleDegree) }
+    var biliSessdata by remember { mutableStateOf(settings.biliSessdata) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("设置") },
@@ -747,6 +750,14 @@ private fun SettingsDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
+                OutlinedTextField(
+                    value = biliSessdata,
+                    onValueChange = { biliSessdata = it },
+                    label = { Text("B站 SESSDATA（可选，用于总结/字幕）") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         },
         confirmButton = {
@@ -757,6 +768,7 @@ private fun SettingsDialog(
                 settings.azureRate = rate
                 settings.azurePitch = pitch
                 settings.azureStyleDegree = styleDegree
+                settings.biliSessdata = biliSessdata
                 onDismiss()
             }) { Text("保存") }
         },
@@ -935,6 +947,7 @@ private fun BilibiliCard(api: ApiClient, url: String) {
     val displayUrl = url
         .removePrefix("https://")
         .removePrefix("http://")
+    val summary = preview?.let { it.summary.ifBlank { it.desc } }.orEmpty()
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -983,9 +996,9 @@ private fun BilibiliCard(api: ApiClient, url: String) {
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                if (!preview?.desc.isNullOrBlank()) {
+                if (summary.isNotBlank()) {
                     Text(
-                        preview!!.desc,
+                        summary,
                         style = MaterialTheme.typography.bodySmall,
                         color = Color(0xFF555555),
                         maxLines = 3,
@@ -1085,7 +1098,16 @@ private fun biliMetaText(preview: BiliPreview, url: String): String = buildStrin
     appendLine("标题：${preview.title}")
     if (preview.owner.isNotBlank()) appendLine("UP主：${preview.owner}")
     if (preview.duration > 0) appendLine("时长：${formatDuration(preview.duration)}")
-    if (preview.desc.isNotBlank()) appendLine("摘要：${preview.desc}")
+    val abstract = preview.summary.ifBlank { preview.desc }
+    if (abstract.isNotBlank()) appendLine("摘要：$abstract")
+    if (preview.outline.isNotEmpty()) {
+        appendLine("【大纲】")
+        preview.outline.take(12).forEach { appendLine(it) }
+    }
+    if (preview.subtitle.isNotBlank()) {
+        appendLine("【字幕节选（共 ${preview.subtitleCount} 句）】")
+        appendLine(preview.subtitle.take(2500))
+    }
     appendLine("链接：$url")
     append("[/BILI_META]")
 }

@@ -25,6 +25,10 @@ data class BiliPreview(
     val owner: String,
     val duration: Int,
     val desc: String = "",
+    val summary: String = "",
+    val outline: List<String> = emptyList(),
+    val subtitle: String = "",
+    val subtitleCount: Int = 0,
 )
 
 data class WebPreview(
@@ -34,11 +38,19 @@ data class WebPreview(
     val douyin: Boolean,
 )
 
+private val BILI_MIXIN_TAB = intArrayOf(
+    46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35,
+    27, 43, 5, 49, 33, 9, 42, 19, 29, 28, 14, 39, 12, 38, 41, 13,
+    37, 48, 7, 16, 24, 55, 40, 61, 26, 17, 0, 1, 60, 51, 30, 4,
+    22, 25, 54, 21, 56, 59, 6, 63, 57, 62, 11, 36, 20, 34, 44, 52,
+)
+
 class ApiException(message: String) : Exception(message)
 
 class ApiClient(
     private val baseUrl: String,
     private val token: String? = null,
+    private val biliSessdata: String = "",
 ) {
     private val jsonType = "application/json; charset=utf-8".toMediaType()
     private val client = OkHttpClient.Builder()
@@ -225,19 +237,35 @@ class ApiClient(
     }
 
     suspend fun biliPreview(url: String): BiliPreview? = withContext(Dispatchers.IO) {
-        directBiliPreview(url) ?: workerBiliPreview(url)
+        val direct = directBiliPreview(url)
+        val worker = if (direct?.summary.isNullOrBlank()) workerBiliPreview(url) else null
+        when {
+            direct == null -> worker
+            worker == null -> direct
+            else -> direct.copy(
+                summary = worker.summary,
+                outline = worker.outline,
+                subtitle = worker.subtitle,
+                subtitleCount = worker.subtitleCount,
+            )
+        }
     }
 
     /** 手机直连 B 站通常比 Worker 出口更稳；失败再走 Worker。 */
     private fun directBiliPreview(url: String): BiliPreview? {
         return try {
             val ua = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/125.0 Mobile Safari/537.36"
+            val headers = mutableMapOf(
+                "User-Agent" to ua,
+                "Referer" to "https://www.bilibili.com/",
+                "Accept" to "application/json",
+            )
+            if (biliSessdata.isNotBlank()) headers["Cookie"] = "SESSDATA=$biliSessdata"
             var finalUrl = url
             if (url.contains("b23.tv")) {
                 val redirect = Request.Builder()
                     .url(url)
-                    .header("User-Agent", ua)
-                    .header("Referer", "https://www.bilibili.com/")
+                    .apply { headers.forEach { (k, v) -> header(k, v) } }
                     .get()
                     .build()
                 execute(redirect).use { response ->
@@ -247,9 +275,7 @@ class ApiClient(
             val bvid = Regex("""BV[0-9A-Za-z]{10}""").find(finalUrl)?.value ?: return null
             val request = Request.Builder()
                 .url("https://api.bilibili.com/x/web-interface/view?bvid=$bvid")
-                .header("User-Agent", ua)
-                .header("Referer", "https://www.bilibili.com/")
-                .header("Accept", "application/json")
+                .apply { headers.forEach { (k, v) -> header(k, v) } }
                 .get()
                 .build()
             execute(request).use { response ->
@@ -257,16 +283,143 @@ class ApiClient(
                 val root = JSONObject(response.body?.string().orEmpty())
                 if (root.optInt("code") != 0) return null
                 val data = root.optJSONObject("data") ?: return null
+                val aid = data.optLong("aid")
+                val cid = data.optLong("cid").takeIf { it > 0 }
+                    ?: data.optJSONArray("pages")?.optJSONObject(0)?.optLong("cid")
+                    ?: 0L
+                val upMid = data.optJSONObject("owner")?.optLong("mid") ?: 0L
+                var summary = ""
+                var outline = emptyList<String>()
+                var subtitle = ""
+                var subtitleCount = 0
+                if (biliSessdata.isNotBlank() && cid > 0) {
+                    val mixin = biliMixinKey(headers)
+                    if (mixin != null) {
+                        runCatching {
+                            val query = biliSign(
+                                mapOf("aid" to aid.toString(), "cid" to cid.toString()),
+                                mixin,
+                            )
+                            val subReq = Request.Builder()
+                                .url("https://api.bilibili.com/x/player/wbi/v2?$query")
+                                .apply { headers.forEach { (k, v) -> header(k, v) } }
+                                .get()
+                                .build()
+                            execute(subReq).use { sr ->
+                                val subs = JSONObject(sr.body?.string().orEmpty())
+                                    .optJSONObject("data")
+                                    ?.optJSONObject("subtitle")
+                                    ?.optJSONArray("subtitles")
+                                val candidates = (0 until (subs?.length() ?: 0))
+                                    .map { subs!!.optJSONObject(it) }
+                                val chosen = candidates.firstOrNull {
+                                    it.optString("lan").startsWith("zh") || it.optString("lan").startsWith("ai")
+                                } ?: candidates.firstOrNull()
+                                val subUrl = chosen?.optString("subtitle_url").orEmpty()
+                                if (subUrl.isNotBlank()) {
+                                    val full = if (subUrl.startsWith("//")) "https:$subUrl" else subUrl
+                                    val bodyReq = Request.Builder().url(full)
+                                        .apply { headers.forEach { (k, v) -> header(k, v) } }
+                                        .get()
+                                        .build()
+                                    execute(bodyReq).use { br ->
+                                        val body = JSONObject(br.body?.string().orEmpty())
+                                            .optJSONArray("body")
+                                        val lines = (0 until (body?.length() ?: 0))
+                                            .map { body!!.optJSONObject(it).optString("content").trim() }
+                                            .filter { it.isNotEmpty() }
+                                        subtitleCount = lines.size
+                                        subtitle = lines.joinToString("\n").take(4000)
+                                    }
+                                }
+                            }
+                        }
+                        runCatching {
+                            val query = biliSign(
+                                mapOf(
+                                    "bvid" to bvid,
+                                    "cid" to cid.toString(),
+                                    "up_mid" to upMid.toString(),
+                                ),
+                                mixin,
+                            )
+                            val sumReq = Request.Builder()
+                                .url("https://api.bilibili.com/x/web-interface/view/conclusion/get?$query")
+                                .apply { headers.forEach { (k, v) -> header(k, v) } }
+                                .get()
+                                .build()
+                            execute(sumReq).use { sr ->
+                                val model = JSONObject(sr.body?.string().orEmpty())
+                                    .optJSONObject("data")
+                                    ?.optJSONObject("model_result")
+                                summary = model?.optString("summary").orEmpty().trim()
+                                val arr = model?.optJSONArray("outline")
+                                val points = mutableListOf<String>()
+                                for (i in 0 until (arr?.length() ?: 0)) {
+                                    val item = arr!!.optJSONObject(i)
+                                    val t = item.optString("title").trim()
+                                    if (t.isNotEmpty()) points.add(t)
+                                    val parts = item.optJSONArray("part_outline")
+                                    for (j in 0 until (parts?.length() ?: 0)) {
+                                        val p = parts!!.optString(j).trim()
+                                        if (p.isNotEmpty()) points.add("  · $p")
+                                    }
+                                    if (points.size >= 12) break
+                                }
+                                outline = points.take(12)
+                            }
+                        }
+                    }
+                }
                 BiliPreview(
                     title = data.optString("title"),
                     owner = data.optJSONObject("owner")?.optString("name").orEmpty(),
                     duration = data.optInt("duration"),
                     desc = data.optString("desc").replace(Regex("\\s+"), " ").take(500),
+                    summary = summary,
+                    outline = outline,
+                    subtitle = subtitle,
+                    subtitleCount = subtitleCount,
                 )
             }
         } catch (_: Exception) {
             null
         }
+    }
+
+    private fun biliMixinKey(headers: Map<String, String>): String? {
+        return runCatching {
+            val req = Request.Builder()
+                .url("https://api.bilibili.com/x/web-interface/nav")
+                .apply { headers.forEach { (k, v) -> header(k, v) } }
+                .get()
+                .build()
+            execute(req).use { response ->
+                val wbi = JSONObject(response.body?.string().orEmpty())
+                    .optJSONObject("data")
+                    ?.optJSONObject("wbi_img") ?: return null
+                val img = wbi.optString("img_url").substringAfterLast('/').substringBefore('.')
+                val sub = wbi.optString("sub_url").substringAfterLast('/').substringBefore('.')
+                val orig = img + sub
+                BILI_MIXIN_TAB.map { orig.getOrNull(it)?.toString() ?: "" }.joinToString("").take(32)
+            }
+        }.getOrNull()
+    }
+
+    private fun biliSign(params: Map<String, String>, mixinKey: String): String {
+        val wts = (System.currentTimeMillis() / 1000).toString()
+        val cleaned = (params + ("wts" to wts))
+            .mapValues { it.value.replace(Regex("[!'()*]"), "") }
+            .toSortedMap()
+        val query = cleaned.entries.joinToString("&") {
+            "${java.net.URLEncoder.encode(it.key, "UTF-8")}=${java.net.URLEncoder.encode(it.value, "UTF-8")}"
+        }
+        return "$query&w_rid=${md5(query + mixinKey)}"
+    }
+
+    private fun md5(value: String): String {
+        val digest = java.security.MessageDigest.getInstance("MD5").digest(value.toByteArray())
+        return digest.joinToString("") { "%02x".format(it) }
     }
 
     private fun workerBiliPreview(url: String): BiliPreview? = runCatching {
@@ -284,7 +437,12 @@ class ApiClient(
                 owner = root.optString("owner"),
                 duration = root.optInt("duration"),
                 desc = root.optString("desc"),
-            )
+                summary = root.optString("summary"),
+                outline = root.optJSONArray("outline")?.let { arr ->
+                    (0 until arr.length()).map { arr.optString(it) }
+                } ?: emptyList(),
+                subtitle = root.optString("subtitle"),
+                subtitleCount = root.optInt("subtitle_count"),            )
         }
     }.getOrNull()
 

@@ -72,6 +72,10 @@ class SettingsStore(context: Context) {
         get() = prefs.getString("azure_style_degree", "1.2") ?: "1.2"
         set(value) = prefs.edit().putString("azure_style_degree", value.trim()).apply()
 
+    var biliSessdata: String
+        get() = prefs.getString("bili_sessdata", "") ?: ""
+        set(value) = prefs.edit().putString("bili_sessdata", value.trim()).apply()
+
     fun clear() {
         prefs.edit().clear().apply()
     }
