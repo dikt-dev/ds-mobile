@@ -25,7 +25,10 @@ object DocumentParser {
 
         val isPdf = name.endsWith(".pdf", true) ||
             context.contentResolver.getType(uri)?.contains("pdf", true) == true
-        val text = if (isPdf) {
+        val ext = name.substringAfterLast('.', "").lowercase()
+        val text = if (ext in setOf("docx", "xlsx", "pptx", "zip")) {
+            OfficeParser.parse(name, bytes)
+        } else if (isPdf) {
             PDFBoxResourceLoader.init(context.applicationContext)
             PDDocument.load(bytes).use { doc ->
                 PDFTextStripper().getText(doc)

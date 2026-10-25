@@ -420,7 +420,6 @@ private fun ChatScreen(
                     val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
                         addCategory(Intent.CATEGORY_OPENABLE)
                         type = "*/*"
-                        putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("application/pdf", "text/*"))
                         putExtra(
                             DocumentsContract.EXTRA_INITIAL_URI,
                             Uri.parse(

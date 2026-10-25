@@ -1,7 +1,7 @@
 # DS-Mobile 阶段 5 验收记录（文件解析，进行中）
 
 > 日期：2026-10-25  
-> 状态：**PDF/TXT 选择、解析、发送已在 K60 上通过；Office/压缩包待做**
+> 状态：**PDF/TXT 文件选择端到端通过；DOCX/XLSX/PPTX/ZIP 解析器自测通过；文件选择器对 Office 的端到端待补**
 
 ---
 
@@ -16,36 +16,41 @@
 | 限制 | 单文件 ≤ 20MB，输出 ≤ 30,000 字符 |
 | 发送 | 解析文本以 `【文件：name】` 前缀发给 Worker |
 | 失败提示 | 扫描 PDF / 空文本会明确提示 |
+| DOCX 解析 | ✅ 自测 71 字符（标题/正文/表格） |
+| XLSX 解析 | ✅ 自测 47 字符（Sheet/单元格） |
+| PPTX 解析 | ✅ 自测 80 字符（两页正文） |
+| ZIP 解析 | ✅ 自测 153 字符（含 txt/docx） |
 | K60 实测 | ✅ 选择 50 页 spike.pdf → 本地解析 → AI 回复 |
 
 截图：
 
 - `screenshot-p5-pdf.png`：PDF 文本 + AI 回复
+- `screenshot-p5-office3.png`：DOCX/XLSX/PPTX/ZIP 自测结果
 
 ---
 
-## 2. 实测链路
+## 2. 自测结果
 
 ```text
-文件按钮 → DocumentsUI Downloads → 选择 spike.pdf
-→ DocumentParser（PDFBox 提取 50 页文本）
-→ POST /v1/chat/completions（【文件：spike.pdf】+ 文本）
-→ AI 回复
-```
+docx-test.docx: 71 字符
+DS-Mobile DOCX Test 这是 DOCX 解析测试... 姓名 大肥鱼 项目 DS-Mobile
 
-AI 回复示例：
+xlsx-test.xlsx: 47 字符
+【Sheet 1】名称 数量 备注 苹果 3 ... 香蕉 5 第二行
 
-```text
-（把那份 PDF 翻来覆去看了三遍...）五十页，页页都写“page X / 50”？
-...能读到第 50 页倒说明你的分页没崩。
+pptx-test.pptx: 80 字符
+【Slide 1】DS-Mobile PPTX Test ... 【Slide 2】第二页...
+
+zip-test.zip: 153 字符
+【压缩包内容】=== readme.txt === ... === docs/docx-test.docx === ...
 ```
 
 ---
 
 ## 3. 待验收/下一步
 
-- DOCX/XLSX/PPTX；
-- ZIP/RAR/7z；
+- 文件选择器直接选 DOCX/XLSX/PPTX/ZIP 的端到端测试；
+- RAR/7z；
 - 扫描 PDF OCR；
 - 超长文本分段/摘要；
 - 文件发送 outbox。

@@ -52,9 +52,22 @@ object ParseSpike {
             }
             val zipEnd = System.currentTimeMillis()
 
+            val office = listOf(
+                "docx-test.docx",
+                "xlsx-test.xlsx",
+                "pptx-test.pptx",
+                "zip-test.zip",
+            ).joinToString("\n") { name ->
+                val data = context.assets.open("test/$name").readBytes()
+                val text = OfficeParser.parse(name, data)
+                "$name: ${text.length} 字符 / ${data.size / 1024}KB\n" +
+                    text.replace('\n', ' ').take(120)
+            }
+
             "PDF: 50 页, $chars 字符, 生成 ${pdfRead - pdfCreate}ms, 解析 ${pdfEnd - pdfRead}ms\n" +
                 "ZIP: $entries 条目, ${bytes / 1024}KB, 生成 ${zipRead - zipCreate}ms, 解析 ${zipEnd - zipRead}ms\n" +
-                "文件: ${pdf.length() / 1024}KB / ${zip.length() / 1024}KB"
+                "文件: ${pdf.length() / 1024}KB / ${zip.length() / 1024}KB\n" +
+                "Office:\n$office"
         } catch (e: Throwable) {
             "解析失败: ${e.javaClass.simpleName}: ${e.message}"
         }
