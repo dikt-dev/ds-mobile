@@ -41,6 +41,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -463,7 +464,10 @@ private fun ChatScreen(
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 14.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            items(messages, key = { it.id }) { message ->
+            itemsIndexed(messages, key = { _, message -> message.id }) { index, message ->
+                if (index == 0 || messageDay(messages[index - 1].createdAt) != messageDay(message.createdAt)) {
+                    DayDivider(messageDay(message.createdAt))
+                }
                 MessageBubble(
                     message = message,
                     api = api,
@@ -675,6 +679,31 @@ private fun SettingsDialog(
             TextButton(onClick = onLogout) { Text("重新配对") }
         },
     )
+}
+
+private fun messageDay(raw: String): String {
+    val day = raw.substringBefore('T', raw)
+    return if (day.length == 10) day.substring(5) else day
+}
+
+@Composable
+private fun DayDivider(day: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+        horizontalArrangement = Arrangement.Center,
+    ) {
+        Surface(
+            shape = RoundedCornerShape(10.dp),
+            color = Color(0xFFFFFFFF).copy(alpha = 0.75f),
+        ) {
+            Text(
+                day,
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
+                style = MaterialTheme.typography.labelSmall,
+                color = Color(0xFF8A8A8A),
+            )
+        }
+    }
 }
 
 @Composable
