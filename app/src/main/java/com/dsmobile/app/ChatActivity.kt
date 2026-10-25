@@ -388,8 +388,14 @@ private fun ChatScreen(
     suspend fun backfillOlderHistory() {
         var before = dao.minId()
         var guard = 0
+        android.util.Log.i("ChatSync", "backfill start before=$before")
         while (before > 1 && guard < 200) {
             val page = api.events(0, 100, beforeId = before)
+            android.util.Log.i(
+                "ChatSync",
+                "backfill page n=${page.messages.size} first=${page.messages.firstOrNull()?.id} " +
+                    "hasMore=${page.hasMore}",
+            )
             if (page.messages.isEmpty()) break
             dao.insertAll(page.messages)
             val next = page.messages.first().id
@@ -398,6 +404,7 @@ private fun ChatScreen(
             if (!page.hasMore) break
             guard++
         }
+        android.util.Log.i("ChatSync", "backfill done before=$before guard=$guard")
     }
 
     suspend fun sendText(text: String) {
@@ -695,9 +702,12 @@ private fun ChatScreen(
                 backfillOlderHistory()
             }
         } catch (e: Exception) {
+            android.util.Log.w("ChatSync", "initial sync failed: ${e.message}", e)
             status = "同步失败：${e.message}"
         } finally {
             // 首屏等历史补齐后再显示，避免用户翻到一半突然冒出旧记录。
+            // 旧消息必须直接完整显示；只有启动后新到达的消息才做逐句动画。
+            runCatching { revealedMessageIds.addAll(dao.allIds()) }
             historyReady = true
             animateSegments = true
         }
