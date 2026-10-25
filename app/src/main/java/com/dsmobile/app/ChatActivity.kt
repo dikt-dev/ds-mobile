@@ -299,6 +299,7 @@ private fun ChatScreen(
     var streamingText by remember { mutableStateOf("") }
     var showSettings by remember { mutableStateOf(false) }
     var initialScrollDone by remember { mutableStateOf(false) }
+    var animateSegments by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
 
@@ -507,6 +508,8 @@ private fun ChatScreen(
         } catch (e: Exception) {
             status = "同步失败：${e.message}"
         }
+        // 历史消息直接完整显示；只有启动后新到达的回复才逐句揭示。
+        animateSegments = true
         while (true) {
             delay(5_000)
             try {
@@ -580,6 +583,7 @@ private fun ChatScreen(
                     biliCookie = settings.biliCookie.ifBlank {
                         if (settings.biliSessdata.isBlank()) "" else "SESSDATA=${settings.biliSessdata}"
                     },
+                    animateSegments = animateSegments,
                     onSpeak = { TtsManager.speak(context, settings, it) },
                     onPrefetch = { TtsManager.prefetch(context, settings, it) },
                 )
@@ -1295,14 +1299,29 @@ private fun BilibiliCard(api: ApiClient, url: String, biliCookie: String) {
 
 @Composable
 private fun SegmentedMessage(
+    messageId: Long,
     label: String,
     segments: List<ChatSegment>,
+    animate: Boolean,
     onSpeak: (String) -> Unit,
     onPrefetch: (String) -> Unit,
 ) {
     val voices = segments.filterIsInstance<ChatSegment.Voice>().map { it.text }
     LaunchedEffect(voices) {
         voices.forEach { if (it.isNotBlank()) onPrefetch(it) }
+    }
+    val alreadyRevealed = !animate || revealedMessageIds.contains(messageId)
+    var visibleCount by remember(messageId) {
+        mutableStateOf(if (alreadyRevealed) segments.size else 1)
+    }
+    LaunchedEffect(messageId, segments.size, animate) {
+        if (animate && !revealedMessageIds.contains(messageId)) {
+            while (visibleCount < segments.size) {
+                delay(180)
+                visibleCount++
+            }
+            revealedMessageIds.add(messageId)
+        }
     }
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -1314,7 +1333,7 @@ private fun SegmentedMessage(
             color = Color(0xFF8A8A8A),
             modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
         )
-        segments.forEach { segment ->
+        segments.take(visibleCount.coerceAtMost(segments.size)).forEach { segment ->
             when (segment) {
                 is ChatSegment.Text -> if (segment.text.isNotBlank()) {
                     Surface(
@@ -1451,6 +1470,7 @@ private sealed interface ChatSegment {
 }
 
 private val VOICE_MARKERS = listOf("【语音】", "【语音消息】", "[语音消息]", "[语音]", "（语音）")
+private val revealedMessageIds = java.util.Collections.synchronizedSet(mutableSetOf<Long>())
 
 private fun splitSentences(text: String): List<String> {
     val out = mutableListOf<String>()
@@ -1581,6 +1601,13 @@ private fun webMetaText(preview: WebPreview, url: String): String = buildString 
 @Composable
 private fun StreamingBubble(text: String) {
     val segments = parseChatSegments(text)
+    var visibleCount by remember { mutableStateOf(1) }
+    LaunchedEffect(segments.size) {
+        while (visibleCount < segments.size) {
+            delay(160)
+            visibleCount++
+        }
+    }
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.Start,
@@ -1595,29 +1622,31 @@ private fun StreamingBubble(text: String) {
                 color = Color(0xFF888888),
                 modifier = Modifier.padding(horizontal = 6.dp),
             )
-            segments.filterIsInstance<ChatSegment.Text>().forEach { segment ->
-                if (segment.text.isNotBlank()) {
-                    Surface(
-                        modifier = Modifier.widthIn(max = 300.dp),
-                        shape = RoundedCornerShape(
-                            topStart = 4.dp,
-                            topEnd = 18.dp,
-                            bottomEnd = 18.dp,
-                            bottomStart = 18.dp,
-                        ),
-                        color = Color.White,
-                        border = BorderStroke(1.dp, Color(0x14000000)),
-                        shadowElevation = 1.dp,
-                    ) {
-                        Text(
-                            segment.text,
-                            modifier = Modifier.padding(horizontal = 13.dp, vertical = 10.dp),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = Color(0xFF1F1F1F),
-                        )
+            segments.filterIsInstance<ChatSegment.Text>()
+                .take(visibleCount.coerceAtMost(segments.size))
+                .forEach { segment ->
+                    if (segment.text.isNotBlank()) {
+                        Surface(
+                            modifier = Modifier.widthIn(max = 300.dp),
+                            shape = RoundedCornerShape(
+                                topStart = 4.dp,
+                                topEnd = 18.dp,
+                                bottomEnd = 18.dp,
+                                bottomStart = 18.dp,
+                            ),
+                            color = Color.White,
+                            border = BorderStroke(1.dp, Color(0x14000000)),
+                            shadowElevation = 1.dp,
+                        ) {
+                            Text(
+                                segment.text,
+                                modifier = Modifier.padding(horizontal = 13.dp, vertical = 10.dp),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Color(0xFF1F1F1F),
+                            )
+                        }
                     }
                 }
-            }
             if (segments.any { it is ChatSegment.Voice }) {
                 Text(
                     "语音生成中…",
@@ -1694,6 +1723,7 @@ private fun MessageBubble(
     message: MessageEntity,
     api: ApiClient,
     biliCookie: String,
+    animateSegments: Boolean,
     onSpeak: (String) -> Unit,
     onPrefetch: (String) -> Unit,
 ) {
@@ -1792,7 +1822,7 @@ private fun MessageBubble(
                 append(time)
             }
         }
-        SegmentedMessage(label, segments, onSpeak, onPrefetch)
+        SegmentedMessage(message.id, label, segments, animateSegments, onSpeak, onPrefetch)
         return
     }
 
