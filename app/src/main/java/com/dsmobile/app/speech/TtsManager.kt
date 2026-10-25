@@ -5,6 +5,7 @@ import android.media.MediaPlayer
 import android.speech.tts.TextToSpeech
 import android.util.Log
 import com.dsmobile.app.data.SettingsStore
+import com.dsmobile.app.stripSpokenActions
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -35,7 +36,7 @@ object TtsManager {
 
     /** 消息到达时先合成，用户点语音条时尽量直接命中缓存。 */
     fun prefetch(context: Context, settings: SettingsStore, text: String) {
-        val clean = text.trim()
+        val clean = stripSpokenActions(text)
         if (clean.isEmpty() || settings.azureKey.isBlank()) return
         scope.launch {
             try {
@@ -47,7 +48,7 @@ object TtsManager {
     }
 
     fun speak(context: Context, settings: SettingsStore, text: String) {
-        val clean = text.trim()
+        val clean = stripSpokenActions(text)
         if (clean.isEmpty()) return
         val key = settings.azureKey
         if (key.isBlank()) {
@@ -73,7 +74,7 @@ object TtsManager {
 
     /** 先把语音合成好，慢一点没关系，等分段输出前用。 */
     suspend fun prepare(context: Context, settings: SettingsStore, text: String): Boolean {
-        val clean = text.trim()
+        val clean = stripSpokenActions(text)
         if (clean.isEmpty() || settings.azureKey.isBlank()) return true
         return runCatching {
             ensureAudio(context, settings, clean)

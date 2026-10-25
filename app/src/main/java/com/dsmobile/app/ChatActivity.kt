@@ -1715,7 +1715,7 @@ private fun SegmentedMessage(
 
 @Composable
 private fun VoiceMessageBubble(text: String, onPlay: () -> Unit) {
-    val seconds = (text.length / 5).coerceIn(2, 60)
+    val seconds = (stripSpokenActions(text).length / 5).coerceIn(2, 60)
     val width = (176 + seconds * 2).coerceAtMost(268).dp
     var showTranscript by remember(text) { mutableStateOf(false) }
     Column(

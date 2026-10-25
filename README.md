@@ -60,6 +60,7 @@ adb shell am start -n com.dsmobile.app/.ChatActivity
 - `message_id` 去重，events 同步和队列推送不会重复通知；
 - 每 5 分钟 App 心跳；划掉最近任务后 `onTaskRemoved` + `START_STICKY` 自动拉起；
 - `[face:名称]` 转 emoji（未收录保留 `[名称]`），语音标记继续按气泡展示；
+- 语音只念台词：`（）` / `()` 里的动作描述只保留在转文字里，TTS 播放前剥离；
 - `inject_history: true`，Worker 补最近 10 轮；
 - 重启后自动恢复服务并继续收通知；
 - 发送 outbox：失败消息保留在本地，可在气泡上重试；
