@@ -21,14 +21,14 @@ adb install -r dist/DS-Mobile-0.1.0.apk
 - SHA-256：
 
 ```text
-38CB28429817181685D462DB25542B37F0A803218C2CBB1650B70F0184D24D10
+A77EC255EDB6BAEBC04F62990E99BD4EAF0D2E20DC56FC31A925259F948010B5
 ```
 
 ## 已具备
 
 - 文字聊天、SSE 流式 / 非流式；
 - 图片、视频、GIF 发送与回放；
-- 语音消息气泡、TTS、转文字；
+- 语音消息气泡、TTS、转文字；“语音”按钮支持 Azure 录音转文字；
 - B 站卡片、官方总结/字幕、3×3 抽帧 + 2 关键帧发给 AI；
 - PDF/TXT/DOCX/XLSX/PPTX/ZIP/7z 解析与文件卡片；
 - 前台服务、通知、开机自启；
