@@ -44,6 +44,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -95,6 +97,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
@@ -740,13 +743,18 @@ private fun ChatScreen(
         focusManager.clearFocus()
     }
 
-    // 用焦点而不是每一帧 IME 高度触发；键盘动画中反复重组/滚动是卡顿主因。
-    LaunchedEffect(inputFocused, itemCount) {
-        if (inputFocused && itemCount > 0) {
-            delay(320)
-            // 用户开始输入时回到最新；键盘弹出后若列表被压缩，也要重新贴底。
-            listState.scrollToItem(itemCount)
+    val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+
+    // 键盘动画期间视口会连续变化。每隔一小段时间贴一次底，
+    // 让列表跟随输入框向上走，而不是等动画结束后才跳一下。
+    LaunchedEffect(imeVisible, itemCount) {
+        if (imeVisible && itemCount > 0) {
             stickToBottom = true
+            repeat(10) {
+                delay(90)
+                val last = listState.layoutInfo.totalItemsCount - 1
+                if (last >= 0) listState.scrollToItem(last)
+            }
         }
     }
     LaunchedEffect(listState) {
@@ -1038,8 +1046,7 @@ private fun ChatScreen(
                             )
                         }
                     }
-                    if (!inputFocused) {
-                        Spacer(Modifier.height(7.dp))
+                    Spacer(Modifier.height(7.dp))
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceEvenly,
@@ -1072,7 +1079,6 @@ private fun ChatScreen(
                                 voiceMode = true
                             }
                         }
-                    }
                 }
             }
         }
