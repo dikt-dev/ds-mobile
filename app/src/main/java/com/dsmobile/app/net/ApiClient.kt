@@ -89,6 +89,7 @@ class ApiClient(
             .url("$baseUrl/v1/chat/completions")
             .header("Authorization", "Bearer ${requireToken()}")
             .header("X-Client-Channel", "mobile")
+            .header("X-Client-Voice", "1")
             .post(bodyText.toRequestBody(jsonType))
             .build()
         execute(request).use { response ->
@@ -121,6 +122,7 @@ class ApiClient(
                 .url("$baseUrl/v1/chat/completions")
                 .header("Authorization", "Bearer ${requireToken()}")
                 .header("X-Client-Channel", "mobile")
+            .header("X-Client-Voice", "1")
                 .post(bodyText.toRequestBody(jsonType))
                 .build()
             execute(request).use { response ->
@@ -185,6 +187,7 @@ class ApiClient(
             .url("$baseUrl/v1/chat/completions")
             .header("Authorization", "Bearer ${requireToken()}")
             .header("X-Client-Channel", "mobile")
+            .header("X-Client-Voice", "1")
             .post(body.toString().toRequestBody(jsonType))
             .build()
         execute(request).use { response ->

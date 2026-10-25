@@ -38,7 +38,15 @@ object TtsManager {
         }
         scope.launch {
             try {
-                val bytes = azureTts(key, settings.azureRegion, settings.azureVoice, clean)
+                val bytes = azureTts(
+                    key = key,
+                    region = settings.azureRegion,
+                    voice = settings.azureVoice,
+                    rate = settings.azureRate,
+                    pitch = settings.azurePitch,
+                    styleDegree = settings.azureStyleDegree,
+                    text = clean,
+                )
                 Log.i(TAG, "azure bytes=${bytes.size}")
                 val file = File(context.cacheDir, "tts-${System.currentTimeMillis()}.wav")
                 file.writeBytes(bytes)
@@ -50,11 +58,28 @@ object TtsManager {
         }
     }
 
-    private fun azureTts(key: String, region: String, voice: String, text: String): ByteArray {
+    private fun azureTts(
+        key: String,
+        region: String,
+        voice: String,
+        rate: String,
+        pitch: String,
+        styleDegree: String,
+        text: String,
+    ): ByteArray {
+        val style = styleFor(text)
+        val inner =
+            "<prosody rate='${escape(rate)}' pitch='${escape(pitch)}'>${escape(text)}</prosody>"
+        val body = if (style.isBlank()) {
+            inner
+        } else {
+            "<mstts:express-as style='${escape(style)}' styledegree='${escape(styleDegree)}'>" +
+                inner + "</mstts:express-as>"
+        }
         val ssml = """
-            <speak version='1.0' xml:lang='zh-CN'>
+            <speak version='1.0' xml:lang='zh-CN' xmlns:mstts='https://www.w3.org/2001/mstts'>
               <voice xml:lang='zh-CN' name='${escape(voice)}'>
-                <prosody rate='+5%' pitch='+3Hz'>${escape(text)}</prosody>
+                $body
               </voice>
             </speak>
         """.trimIndent()
@@ -72,6 +97,17 @@ object TtsManager {
             }
             return response.body?.bytes() ?: throw IllegalStateException("TTS 返回空")
         }
+    }
+
+    /** 从 tts_router.py 迁移的情绪 style 映射。 */
+    private fun styleFor(text: String): String = when {
+        listOf("傲娇", "毒舌", "嘴硬", "别扭", "嫌弃", "不屑", "冷哼").any { text.contains(it) } ->
+            "disgruntled"
+        listOf("炸毛", "生气", "凶", "恼火").any { text.contains(it) } -> "angry"
+        listOf("心软", "撒娇", "温柔", "喜欢").any { text.contains(it) } -> "affectionate"
+        listOf("委屈", "难过", "伤心", "哭").any { text.contains(it) } -> "sad"
+        listOf("得意", "开心", "高兴", "兴奋", "活泼", "笑").any { text.contains(it) } -> "cheerful"
+        else -> ""
     }
 
     private fun play(context: Context, file: File, text: String) {

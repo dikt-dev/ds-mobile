@@ -31,6 +31,8 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -567,11 +569,17 @@ private fun SettingsDialog(
     var key by remember { mutableStateOf(settings.azureKey) }
     var region by remember { mutableStateOf(settings.azureRegion) }
     var voice by remember { mutableStateOf(settings.azureVoice) }
+    var rate by remember { mutableStateOf(settings.azureRate) }
+    var pitch by remember { mutableStateOf(settings.azurePitch) }
+    var styleDegree by remember { mutableStateOf(settings.azureStyleDegree) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("设置") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+            ) {
                 Text("Azure TTS（留空则用本地 TTS）", style = MaterialTheme.typography.labelMedium)
                 OutlinedTextField(
                     value = key,
@@ -595,6 +603,27 @@ private fun SettingsDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
+                OutlinedTextField(
+                    value = rate,
+                    onValueChange = { rate = it },
+                    label = { Text("Rate（如 +5%）") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = pitch,
+                    onValueChange = { pitch = it },
+                    label = { Text("Pitch（如 +3Hz）") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = styleDegree,
+                    onValueChange = { styleDegree = it },
+                    label = { Text("Style Degree（如 1.2）") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         },
         confirmButton = {
@@ -602,6 +631,9 @@ private fun SettingsDialog(
                 settings.azureKey = key
                 settings.azureRegion = region
                 settings.azureVoice = voice
+                settings.azureRate = rate
+                settings.azurePitch = pitch
+                settings.azureStyleDegree = styleDegree
                 onDismiss()
             }) { Text("保存") }
         },
@@ -609,6 +641,17 @@ private fun SettingsDialog(
             TextButton(onClick = onLogout) { Text("重新配对") }
         },
     )
+}
+
+@Composable
+private fun VoiceBar(onPlay: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        TextButton(onClick = onPlay) { Text("▶ 语音") }
+        Text("点击播放", style = MaterialTheme.typography.labelSmall)
+    }
 }
 
 @Composable
@@ -621,7 +664,13 @@ private fun StreamingBubble(text: String) {
             Column(modifier = Modifier.padding(10.dp)) {
                 Text("App · 大肥鱼 · 正在输入", style = MaterialTheme.typography.labelSmall)
                 Spacer(Modifier.height(4.dp))
-                Text(text, style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    text
+                        .replace("[语音]", "")
+                        .replace("【语音消息】", "")
+                        .replace("（语音）", ""),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
             }
         }
     }
@@ -672,9 +721,12 @@ private fun MessageBubble(
         .findAll(message.content)
         .map { it.groupValues[1] }
         .toList()
-    val display = message.content
+    var display = message.content
         .replace(Regex("\\[图片:([^\\]]+)]"), "")
-        .trim()
+    val voiceMarkers = listOf("[语音]", "【语音消息】", "（语音）")
+    val isVoice = !isUser && voiceMarkers.any { display.contains(it) }
+    voiceMarkers.forEach { display = display.replace(it, "") }
+    display = display.trim()
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
@@ -697,7 +749,9 @@ private fun MessageBubble(
                 imageKeys.forEach { key ->
                     MessageImage(api, key)
                 }
-                if (!isUser && display.isNotEmpty()) {
+                if (!isUser && isVoice) {
+                    VoiceBar(onPlay = { onSpeak(display) })
+                } else if (!isUser && display.isNotEmpty()) {
                     TextButton(onClick = { onSpeak(display) }) { Text("朗读") }
                 }
             }

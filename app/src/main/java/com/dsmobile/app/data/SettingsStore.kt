@@ -60,6 +60,18 @@ class SettingsStore(context: Context) {
         get() = prefs.getString("azure_voice", "zh-CN-XiaoyiNeural") ?: "zh-CN-XiaoyiNeural"
         set(value) = prefs.edit().putString("azure_voice", value.trim()).apply()
 
+    var azureRate: String
+        get() = prefs.getString("azure_rate", "+5%") ?: "+5%"
+        set(value) = prefs.edit().putString("azure_rate", value.trim()).apply()
+
+    var azurePitch: String
+        get() = prefs.getString("azure_pitch", "+3Hz") ?: "+3Hz"
+        set(value) = prefs.edit().putString("azure_pitch", value.trim()).apply()
+
+    var azureStyleDegree: String
+        get() = prefs.getString("azure_style_degree", "1.2") ?: "1.2"
+        set(value) = prefs.edit().putString("azure_style_degree", value.trim()).apply()
+
     fun clear() {
         prefs.edit().clear().apply()
     }
