@@ -28,7 +28,10 @@ import org.apache.sshd.common.util.io.PathUtils
 import org.apache.sshd.common.util.security.SecurityProviderChoice
 import org.apache.sshd.common.util.security.SecurityUtils
 import org.apache.sshd.server.SshServer
+import org.apache.sshd.common.config.keys.AuthorizedKeyEntry
+import org.apache.sshd.common.config.keys.PublicKeyEntryResolver
 import org.apache.sshd.server.auth.password.PasswordAuthenticator
+import org.apache.sshd.server.auth.pubkey.PublickeyAuthenticator
 import org.apache.sshd.server.kex.DHGServer
 import org.apache.sshd.server.keyprovider.SimpleGeneratorHostKeyProvider
 import org.apache.sshd.sftp.server.SftpSubsystemFactory
@@ -171,8 +174,27 @@ class DebugSshService : Service() {
                     "cipher=${server.cipherFactories?.joinToString { it.name }} " +
                     "mac=${server.macFactories?.joinToString { it.name }}",
             )
-            server.passwordAuthenticator = PasswordAuthenticator { username, pass, _ ->
-                username == USERNAME && pass == password
+            val authorizedKeys = File(filesDir, "authorized_keys")
+                .takeIf { it.isFile }
+                ?.readLines()
+                ?.mapNotNull { line ->
+                    runCatching {
+                        AuthorizedKeyEntry.parseAuthorizedKeyEntry(line.trim())
+                            .resolvePublicKey(null, PublicKeyEntryResolver.IGNORING)
+                    }.getOrNull()
+                }
+                .orEmpty()
+            if (authorizedKeys.isNotEmpty()) {
+                server.passwordAuthenticator = PasswordAuthenticator { _, _, _ -> false }
+                server.publickeyAuthenticator = PublickeyAuthenticator { username, key, _ ->
+                    username == USERNAME && authorizedKeys.any { it == key }
+                }
+                Log.i(TAG, "auth=publickey keys=${authorizedKeys.size}")
+            } else {
+                server.passwordAuthenticator = PasswordAuthenticator { username, pass, _ ->
+                    username == USERNAME && pass == password
+                }
+                Log.i(TAG, "auth=password")
             }
             server.subsystemFactories = listOf(SftpSubsystemFactory())
             server.fileSystemFactory = VirtualFileSystemFactory(filesDir.toPath())
