@@ -14,7 +14,7 @@
 | 空工程编译 | ✅ `assembleDebug` 成功 |
 | APK | `app/build/outputs/apk/debug/app-debug.apk`，约 42MB（含 SSHD/PDFBox） |
 | 安装 | ✅ `adb install -r` 成功（需开启 K60「USB 安装 / USB 调试安全设置」） |
-| 启动 | ✅ `com.dsmobile.app/.MainActivity` 正常 |
+| 启动 | ✅ `com.dsmobile.app/.ChatActivity` 正常（阶段 1 起为默认页） |
 | 包名 | `com.dsmobile.app` |
 | minSdk / targetSdk | 35 / 35 |
 
