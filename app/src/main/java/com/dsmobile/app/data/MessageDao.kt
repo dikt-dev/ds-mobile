@@ -1,6 +1,7 @@
 package com.dsmobile.app.data
 
 import androidx.room.Dao
+import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
@@ -16,4 +17,13 @@ interface MessageDao {
 
     @Query("SELECT COALESCE(MAX(id), 0) FROM messages")
     suspend fun maxId(): Long
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertPending(message: PendingMessageEntity): Long
+
+    @Query("SELECT * FROM pending_messages ORDER BY id ASC")
+    fun observePending(): Flow<List<PendingMessageEntity>>
+
+    @Delete
+    suspend fun deletePending(message: PendingMessageEntity)
 }

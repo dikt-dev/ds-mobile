@@ -2,7 +2,7 @@
 
 > 日期：2026-10-25  
 > 目标：不经过 QQ，App 内直接与 `ds-memory` Worker 聊天。  
-> 状态：**文本聊天 MVP + 后台通知 + Token 加密 + 重启自启已跑通；outbox/流式待补**
+> 状态：**文本聊天 MVP + 后台通知 + Token 加密 + 重启自启 + 发送 outbox/重试已跑通；流式待补**
 
 ---
 
@@ -21,6 +21,7 @@
 | 启动页 | ✅ `ChatActivity` 已设为 launcher；调试页收进「调试」按钮 |
 | 后台通知 | ✅ App 在后台收到助手消息时弹 `DS-Mobile 消息` 通知 |
 | 重启自启 | ✅ HyperOS 白名单配置后，重启自动启动服务并收到通知 |
+| 发送 outbox | ✅ 发送失败保留 `pending_messages`，气泡可重试 |
 | Token 存储 | ✅ EncryptedSharedPreferences（Keystore 主密钥），旧明文自动迁移 |
 | K60 实测 | ✅ 发送 `App test reply OK`，收到 AI 回复；后台通知测试成功 |
 

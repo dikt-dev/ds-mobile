@@ -36,6 +36,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -52,6 +53,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.dsmobile.app.data.AppDatabase
 import com.dsmobile.app.data.MessageEntity
+import com.dsmobile.app.data.PendingMessageEntity
 import com.dsmobile.app.data.SettingsStore
 import com.dsmobile.app.net.ApiClient
 import kotlinx.coroutines.delay
@@ -229,6 +231,7 @@ private fun ChatScreen(
     val dao = remember { db.messageDao() }
     val api = remember(settings.baseUrl, token) { ApiClient(settings.baseUrl, token) }
     val messages by dao.observe().collectAsState(initial = emptyList())
+    val pending by dao.observePending().collectAsState(initial = emptyList())
     var input by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("") }
@@ -269,8 +272,10 @@ private fun ChatScreen(
         }
     }
 
-    LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex)
+    LaunchedEffect(messages.size + pending.size) {
+        if (messages.isNotEmpty() || pending.isNotEmpty()) {
+            listState.animateScrollToItem((messages.size + pending.size - 1).coerceAtLeast(0))
+        }
     }
 
     Column(modifier = Modifier.fillMaxSize().statusBarsPadding().imePadding()) {
@@ -295,6 +300,29 @@ private fun ChatScreen(
         ) {
             items(messages, key = { it.id }) { message ->
                 MessageBubble(message)
+            }
+            items(pending, key = { "pending-${it.id}" }) { message ->
+                PendingBubble(
+                    message = message,
+                    busy = busy,
+                    onRetry = {
+                        scope.launch {
+                            busy = true
+                            status = "重试发送…"
+                            try {
+                                api.chat(message.content)
+                                dao.deletePending(message)
+                                delay(300)
+                                syncEvents()
+                                status = ""
+                            } catch (e: Exception) {
+                                status = "发送失败：${e.message}"
+                            } finally {
+                                busy = false
+                            }
+                        }
+                    },
+                )
             }
         }
         if (status.isNotEmpty()) {
@@ -325,13 +353,16 @@ private fun ChatScreen(
                     busy = true
                     status = "发送中…"
                     scope.launch {
+                        val pendingMessage = PendingMessageEntity(content = text)
+                        val pendingId = dao.insertPending(pendingMessage)
                         try {
                             api.chat(text)
+                            dao.deletePending(pendingMessage.copy(id = pendingId))
                             delay(300)
                             syncEvents()
                             status = ""
                         } catch (e: Exception) {
-                            status = "发送失败：${e.message}"
+                            status = "发送失败：${e.message}，可在下方重试"
                         } finally {
                             busy = false
                         }
@@ -339,6 +370,34 @@ private fun ChatScreen(
                 },
             ) {
                 Text(if (busy) "…" else "发送")
+            }
+        }
+    }
+}
+
+@Composable
+private fun PendingBubble(
+    message: PendingMessageEntity,
+    busy: Boolean,
+    onRetry: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.End,
+    ) {
+        Card(modifier = Modifier.fillMaxWidth(0.86f)) {
+            Column(modifier = Modifier.padding(10.dp)) {
+                Text("App · 待发送", style = MaterialTheme.typography.labelSmall)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    message.content,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 30,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                TextButton(onClick = onRetry, enabled = !busy) {
+                    Text(if (busy) "发送中…" else "重试")
+                }
             }
         }
     }

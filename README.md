@@ -51,6 +51,7 @@ adb shell am start -n com.dsmobile.app/.ChatActivity
 - 历史显示 Web/QQ/App 全部渠道；
 - 后台助手消息通知（`DS-Mobile 消息` 渠道）；
 - 重启后自动恢复服务并继续收通知；
+- 发送 outbox：失败消息保留在本地，可在气泡上重试；
 - Token 用 EncryptedSharedPreferences 保存，旧明文自动迁移；
 - 实测发送 `App test reply OK` 并收到 AI 回复。
 
