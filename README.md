@@ -55,7 +55,7 @@ adb shell am start -n com.dsmobile.app/.ChatActivity
 - 分享链接：B站卡片 + 摘要/总结/字幕，普通网页/抖音卡片 + 摘要；
 - 视频/GIF：上传 R2，视频内嵌播放，GIF 动图播放；
 - 历史显示 Web/QQ/App 全部渠道；
-- 后台助手消息通知（`DS-Mobile 消息` 渠道）；
+- 后台助手消息通知（`DS-Mobile 消息` 渠道）：悬浮横幅、锁屏公开、桌面角标、声音和震动；打开 App 清除角标；
 - 主动消息：前台服务每 30 秒消费 `/api/proactive/pending`，先本地通知再 ACK；
 - `message_id` 去重，events 同步和队列推送不会重复通知；
 - 每 5 分钟 App 心跳；划掉最近任务后 `onTaskRemoved` + `START_STICKY` 自动拉起；

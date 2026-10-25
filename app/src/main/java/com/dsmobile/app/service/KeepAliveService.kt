@@ -8,6 +8,8 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.media.AudioAttributes
+import android.media.RingtoneManager
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -42,10 +44,22 @@ class KeepAliveService : Service() {
     companion object {
         private const val TAG = "KeepAliveService"
         private const val CHANNEL_ID = "ds_keepalive"
-        private const val MESSAGE_CHANNEL_ID = "ds_messages"
+        // v2：确保已安装旧渠道也能拿到悬浮/锁屏/角标配置；旧渠道会被删除
+        private const val MESSAGE_CHANNEL_ID = "ds_messages_v2"
+        private const val LEGACY_MESSAGE_CHANNEL_ID = "ds_messages"
         private const val NOTIFICATION_ID = 1001
         private const val MESSAGE_NOTIFICATION_ID = 2001
         private const val HEALTH_URL = "https://fae.us.ci/api/health"
+
+        @Volatile
+        private var unreadCount: Int = 0
+
+        /** App 打开聊天页时清掉消息通知与角标。 */
+        fun clearMessageNotification(context: Context) {
+            context.getSystemService(NotificationManager::class.java)
+                .cancel(MESSAGE_NOTIFICATION_ID)
+            unreadCount = 0
+        }
 
         @Volatile
         var appVisible: Boolean = false
@@ -264,13 +278,22 @@ class KeepAliveService : Service() {
             Intent(this, ChatActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
+        unreadCount += 1
         val notification = NotificationCompat.Builder(this, MESSAGE_CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setSmallIcon(android.R.drawable.stat_notify_chat)
             .setAutoCancel(true)
+            .setOnlyAlertOnce(false)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setNumber(unreadCount)
+            .setBadgeIconType(NotificationCompat.BADGE_ICON_SMALL)
+            .setVibrate(longArrayOf(0, 220, 120, 220))
+            .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION))
             .setContentIntent(pendingIntent)
             .build()
         manager.notify(MESSAGE_NOTIFICATION_ID, notification)
@@ -307,14 +330,30 @@ class KeepAliveService : Service() {
         }
         manager.createNotificationChannel(channel)
 
+        val audioAttributes = AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+            .build()
         val messageChannel = NotificationChannel(
             MESSAGE_CHANNEL_ID,
             "DS-Mobile 消息",
             NotificationManager.IMPORTANCE_HIGH,
         ).apply {
-            description = "新消息提醒"
+            description = "新消息提醒：悬浮横幅、锁屏、角标、声音和震动"
+            setShowBadge(true)
+            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            enableLights(true)
+            lightColor = 0xFF7C5CFF.toInt()
+            enableVibration(true)
+            vibrationPattern = longArrayOf(0, 220, 120, 220)
+            setSound(
+                RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION),
+                audioAttributes,
+            )
         }
         manager.createNotificationChannel(messageChannel)
+        // 旧渠道的 importance/锁屏设置无法原地升级；清掉避免设置页出现重复项。
+        manager.deleteNotificationChannel(LEGACY_MESSAGE_CHANNEL_ID)
     }
 
     private fun buildNotification(text: String): Notification {

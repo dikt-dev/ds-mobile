@@ -171,6 +171,7 @@ class ChatActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         com.dsmobile.app.service.KeepAliveService.appVisible = true
+        com.dsmobile.app.service.KeepAliveService.clearMessageNotification(this)
     }
 
     override fun onPause() {
