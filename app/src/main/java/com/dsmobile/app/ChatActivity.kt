@@ -74,6 +74,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
@@ -707,6 +708,64 @@ private fun DayDivider(day: String) {
 }
 
 @Composable
+private fun BilibiliCard(url: String) {
+    val uriHandler = LocalUriHandler.current
+    val displayUrl = url
+        .removePrefix("https://")
+        .removePrefix("http://")
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .clickable { uriHandler.openUri(url) },
+        shape = RoundedCornerShape(12.dp),
+        color = Color(0xFFF7F8FA),
+        border = BorderStroke(1.dp, Color(0x14000000)),
+    ) {
+        Row(
+            modifier = Modifier.padding(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = Color(0xFFFB7299),
+                modifier = Modifier.size(38.dp),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        "B",
+                        color = Color.White,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
+            Spacer(Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    "哔哩哔哩",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = Color(0xFF222222),
+                )
+                Text(
+                    displayUrl,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFF888888),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Text(
+                "打开 ↗",
+                style = MaterialTheme.typography.labelSmall,
+                color = Color(0xFFFB7299),
+            )
+        }
+    }
+}
+
+@Composable
 private fun VoiceMessageBubble(text: String, onPlay: () -> Unit) {
     val seconds = (text.length / 5).coerceIn(2, 60)
     val width = (176 + seconds * 2).coerceAtMost(268).dp
@@ -889,6 +948,20 @@ private fun MessageBubble(
         .trim()
     val isVoice = !isUser && voiceText.isNotEmpty()
 
+    val biliPattern = Regex(
+        """https?://(?:b23\.tv|(?:www\.)?bilibili\.com)/[^\s，。！？)]+""",
+        RegexOption.IGNORE_CASE,
+    )
+    val biliUrls = biliPattern.findAll(displayText)
+        .map { it.value.trimEnd(')', ']', '】', '。', '，', '！', '？') }
+        .distinct()
+        .toList()
+    val bodyText = biliPattern.replace(displayText, "")
+        .replace(Regex("\\n{3,}"), "\n\n")
+        .trim()
+    var expanded by remember(message.id) { mutableStateOf(false) }
+    val isLongText = bodyText.length > 600
+
     LaunchedEffect(isVoice, voiceText) {
         if (isVoice) onPrefetch(voiceText)
     }
@@ -912,7 +985,7 @@ private fun MessageBubble(
             color = Color(0xFF8A8A8A),
             modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
         )
-        if (displayText.isNotEmpty() || imageKeys.isNotEmpty()) {
+        if (bodyText.isNotEmpty() || imageKeys.isNotEmpty() || biliUrls.isNotEmpty()) {
             Surface(
                 modifier = Modifier.widthIn(max = 300.dp),
                 shape = if (isUser) {
@@ -928,17 +1001,28 @@ private fun MessageBubble(
                     modifier = Modifier.padding(horizontal = 13.dp, vertical = 10.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    if (displayText.isNotEmpty()) {
+                    if (bodyText.isNotEmpty()) {
                         Text(
-                            displayText,
+                            bodyText,
                             style = MaterialTheme.typography.bodyMedium,
-                            maxLines = 30,
+                            maxLines = if (expanded || !isLongText) 30 else 8,
                             overflow = TextOverflow.Ellipsis,
                             color = Color(0xFF1F1F1F),
                         )
                     }
+                    if (isLongText) {
+                        TextButton(
+                            onClick = { expanded = !expanded },
+                            contentPadding = PaddingValues(0.dp),
+                        ) {
+                            Text(if (expanded) "收起" else "展开全文")
+                        }
+                    }
                     imageKeys.forEach { key ->
                         MessageImage(api, key)
+                    }
+                    biliUrls.forEach { url ->
+                        BilibiliCard(url)
                     }
                 }
             }
