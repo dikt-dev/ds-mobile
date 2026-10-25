@@ -65,6 +65,7 @@ import com.dsmobile.app.data.PendingMessageEntity
 import com.dsmobile.app.data.SettingsStore
 import com.dsmobile.app.media.MediaUtils
 import com.dsmobile.app.net.ApiClient
+import com.dsmobile.app.parse.DocumentParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -285,6 +286,30 @@ private fun ChatScreen(
         }
     }
 
+    val filePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                busy = true
+                status = "读取文件…"
+                try {
+                    val doc = DocumentParser.parse(context, uri)
+                    status = "发送文件内容…"
+                    val content = "【文件：${doc.name}】\n${doc.text}"
+                    api.chat(content, UUID.randomUUID().toString())
+                    delay(300)
+                    syncEvents()
+                    status = ""
+                } catch (e: Exception) {
+                    status = "文件解析失败：${e.message}"
+                } finally {
+                    busy = false
+                }
+            }
+        }
+    }
+
     LaunchedEffect(token) {
         if (token.isNotBlank()) {
             com.dsmobile.app.service.KeepAliveService.start(context)
@@ -386,7 +411,16 @@ private fun ChatScreen(
             ) {
                 Text("图片")
             }
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(6.dp))
+            OutlinedButton(
+                onClick = {
+                    filePicker.launch(arrayOf("application/pdf", "text/*"))
+                },
+                enabled = !busy,
+            ) {
+                Text("文件")
+            }
+            Spacer(Modifier.width(6.dp))
             OutlinedTextField(
                 value = input,
                 onValueChange = { input = it },
