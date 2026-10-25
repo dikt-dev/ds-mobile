@@ -461,6 +461,10 @@ private fun ChatScreen(
         )
         val pendingId = dao.insertPending(pendingMessage)
         failedPendingIds.remove(pendingId)
+        // 自己发出的消息必须立刻出现在底部，不能等异步列表更新。
+        stickToBottom = true
+        withFrameNanos { }
+        listState.scrollToItem(0)
         try {
             // 非流式等待完整回复，避免一边输出一边重排；语音先合成，再让消息进入列表逐句展示。
             val reply = if (frames.isNotEmpty()) {
@@ -743,10 +747,20 @@ private fun ChatScreen(
 
     LaunchedEffect(listState) {
         snapshotFlow {
-            listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
-        }.collect { (index, offset) ->
-            // reverseLayout 下 index=0 + offset=0 才是真正贴底
-            stickToBottom = index == 0 && offset == 0
+            Triple(
+                listState.isScrollInProgress,
+                listState.firstVisibleItemIndex,
+                listState.firstVisibleItemScrollOffset,
+            )
+        }.collect { (scrolling, index, offset) ->
+            // reverseLayout 下 index=0 + offset=0 才是真正贴底。
+            // 只在用户真正滚动时把跟随关掉；新消息插入造成的 index 变化不能误判。
+            val atBottom = index == 0 && offset == 0
+            if (scrolling) {
+                stickToBottom = atBottom
+            } else if (atBottom) {
+                stickToBottom = true
+            }
         }
     }
     val scrollToLatest: () -> Unit = {
