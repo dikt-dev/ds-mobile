@@ -484,10 +484,11 @@ private fun ChatScreen(
                 .map { it.text }
                 .distinct()
             voices.forEach { TtsManager.prepare(context, settings, it) }
+            // 先让 D1 的 user/assistant 落进 Room，再移除本地 pending；
+            // 反过来会先删掉自己的气泡，等网络回来才补上，产生可见的空白闪动。
+            syncEvents()
             dao.deletePending(pendingMessage.copy(id = pendingId))
             failedPendingIds.remove(pendingId)
-            delay(100)
-            syncEvents()
             streamingText = ""
             status = ""
         } catch (e: Exception) {
@@ -783,7 +784,8 @@ private fun ChatScreen(
             }
             initialScrollDone = true
         } else if (stickToBottom && !listState.isScrollInProgress) {
-            listState.animateScrollToItem(0)
+            // 回复到达/typing 移除时直接贴底，避免 animate 与列表结构切换叠加造成闪动。
+            listState.scrollToItem(0)
         }
     }
 
