@@ -1,9 +1,13 @@
 package com.dsmobile.app
 
 import android.Manifest
+import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -181,6 +185,36 @@ private fun SetupScreen(settings: SettingsStore, onPaired: (String) -> Unit) {
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text("打开阶段 0 调试页")
+        }
+        OutlinedButton(
+            onClick = { openAutostartSettings(context) },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("打开自启动/省电设置")
+        }
+    }
+}
+
+private fun openAutostartSettings(context: Context) {
+    val candidates = listOf(
+        Intent("miui.intent.action.OP_AUTO_START").addCategory(Intent.CATEGORY_DEFAULT),
+        Intent().setComponent(
+            ComponentName(
+                "com.miui.securitycenter",
+                "com.miui.permcenter.autostart.AutoStartManagementActivity",
+            )
+        ),
+        Intent(
+            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+            Uri.parse("package:${context.packageName}"),
+        ),
+    )
+    for (intent in candidates) {
+        try {
+            context.startActivity(intent)
+            return
+        } catch (_: Exception) {
+            // try next
         }
     }
 }
