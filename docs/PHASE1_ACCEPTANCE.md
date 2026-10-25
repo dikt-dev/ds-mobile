@@ -20,6 +20,7 @@
 | 聊天页 | ✅ 历史、气泡、发送中状态、5 秒轮询 |
 | 启动页 | ✅ `ChatActivity` 已设为 launcher；调试页收进「调试」按钮 |
 | 后台通知 | ✅ App 在后台收到助手消息时弹 `DS-Mobile 消息` 通知 |
+| 重启自启 | ✅ HyperOS 白名单配置后，重启自动启动服务并收到通知 |
 | Token 存储 | ✅ EncryptedSharedPreferences（Keystore 主密钥），旧明文自动迁移 |
 | K60 实测 | ✅ 发送 `App test reply OK`，收到 AI 回复；后台通知测试成功 |
 
@@ -58,7 +59,7 @@ App 配对 → 设备 Token → ChatActivity
 1. 发送不是流式；先拿到完整回复再拉事件。
 2. 没有本地乐观消息和失败重试队列。
 3. 历史里超长 Web 消息会截断显示 30 行。
-4. 重启自启仍依赖 HyperOS 自启动白名单。
+4. 历史里超长 Web 消息会截断显示 30 行。
 5. Token 迁移后旧 `ds_mobile_settings.xml` 只剩空壳，不影响使用。
 
 ---

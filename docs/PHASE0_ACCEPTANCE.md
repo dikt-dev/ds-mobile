@@ -3,7 +3,7 @@
 > 日期：2026-10-25  
 > 设备：Redmi K60（23013RK75C / mondrian，Android 15 / API 35，arm64-v8a）  
 > 构建：Kotlin 2.0.21 + Compose + AGP 8.7.3 + Gradle 8.9 + JDK 17 + SDK 35  
-> 状态：**P0 基本完成；仅重启自启待 HyperOS 白名单确认**
+> 状态：**P0 完成（2026-10-25 14:05 重启自启验证通过）**
 
 ---
 
@@ -35,16 +35,17 @@
   - 健康检查继续；
   - 截图见 `screenshot-p0-ok.png`。
 
-### 2.2 未通过/待配置
+### 2.2 重启自启（已通过）
 
-- 重启 K60 后，`BOOT_COMPLETED` 未触发 `BootReceiver`，服务未自动启动。
-- 原因判断：HyperOS 默认禁止第三方应用自启动，需要手动把 DS-Mobile 加入自启动白名单。
-- 待办：
-  1. 设置 → 应用设置 → DS-Mobile → 自启动：开；
-  2. 省电策略：无限制；
-  3. 最近任务下拉锁定；
-  4. 重启后再测。
-- 如果自启动仍不生效，阶段 2 用 WorkManager/AlarmManager 兜底，或接受“重启后手动打开一次”。
+开启 HyperOS 自启动 + 无限制省电后，重启 K60 验证：
+
+- 系统日志：`Start proc com.dsmobile.app ... for broadcast BootReceiver`；
+- App 日志：`BootReceiver: boot completed, start KeepAliveService`；
+- 服务自动启动：`isForeground=true foregroundId=1001`；
+- 无需打开 App，后台事件轮询继续；
+- 通过 Python 发送测试消息，通知栏收到「大肥鱼：重启通知成功」。
+
+这说明“重启后自动接收”已满足。
 
 ---
 
@@ -148,10 +149,10 @@ ds-mobile/
 |---|---|
 | 空 APK 可编译/安装/启动 | ✅ |
 | 前台服务划掉后台仍运行 | ✅ |
-| 重启自启 | ⚠️ 待 HyperOS 白名单 |
+| 重启自启 | ✅ 14:05 验证通过 |
 | SFTP 可上传/下载 | ✅ |
 | API 契约冻结 | ✅ |
 | PDF/ZIP 解析 spike | ✅ |
 | 风险清单 | ✅（见项目报告） |
 
-**结论：阶段 0 只剩“重启自启”需要 HyperOS 白名单验证；其余出口条件已满足。**
+**结论：阶段 0 全部出口条件已满足。**

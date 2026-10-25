@@ -38,6 +38,7 @@ adb shell am start -n com.dsmobile.app/.ChatActivity
 ### 阶段 0
 
 - 前台服务：每 3 秒检查 `https://fae.us.ci/api/health`，划掉后台仍运行；
+- 重启自启：HyperOS 自启动/无限制省电后，重启自动恢复；
 - SSH/SFTP 调试：8022，阶段 0 为临时随机密码，正式版改公钥；
 - PDF/ZIP 解析 spike：50 页 PDF + 100 条目 ZIP；
 - API 契约已冻结。
@@ -49,6 +50,7 @@ adb shell am start -n com.dsmobile.app/.ChatActivity
 - 文字聊天、Room 本地库、5 秒增量轮询；
 - 历史显示 Web/QQ/App 全部渠道；
 - 后台助手消息通知（`DS-Mobile 消息` 渠道）；
+- 重启后自动恢复服务并继续收通知；
 - Token 用 EncryptedSharedPreferences 保存，旧明文自动迁移；
 - 实测发送 `App test reply OK` 并收到 AI 回复。
 
