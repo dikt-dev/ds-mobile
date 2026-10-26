@@ -12,4 +12,5 @@ data class MessageEntity(
     val createdAt: String,
     val turnId: Long? = null,
     val proactiveKind: String? = null,
+    val clientMessageId: String? = null,
 )

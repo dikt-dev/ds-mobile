@@ -345,6 +345,7 @@ private fun ChatScreen(
     val pending by dao.observePending().collectAsState(initial = emptyList())
     val reversedMessages = remember(messages) { messages.asReversed() }
     var input by remember { mutableStateOf("") }
+    var draft by remember { mutableStateOf<DraftAttachment?>(null) }
     var busy by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("") }
     var streamingText by remember { mutableStateOf("") }
@@ -368,7 +369,7 @@ private fun ChatScreen(
             if (!page.hasMore || next <= after) break
             after = next
         }
-        if (changed.isNotEmpty()) dao.insertAll(changed)
+        if (changed.isNotEmpty()) dao.applyServerMessages(changed)
     }
 
     /** 首装全量补齐；之后只走 syncEvents 增量。 */
@@ -383,7 +384,7 @@ private fun ChatScreen(
             if (!page.hasMore || next <= after) break
             after = next
         }
-        if (all.isNotEmpty()) dao.insertAll(all)
+        if (all.isNotEmpty()) dao.applyServerMessages(all)
     }
 
     /** 老版本本地库只有最近 300 条；从本地最小 id 往前回填。 */
@@ -412,20 +413,17 @@ private fun ChatScreen(
     suspend fun sendText(text: String) {
         stickToBottom = true
         busy = true
-        // 不显示“发送中”，等待期间只显示正在输入状态。
+        // 等待回复期间不显示“正在输入”气泡，只在需要时保留底层状态。
         status = "等待回复…"
         streamingText = ""
-        val biliUrl = Regex(
-            """https?://(?:b23\.tv|(?:www\.)?bilibili\.com)/[^\s，。！？)]+""",
-            RegexOption.IGNORE_CASE,
-        ).find(text)?.value
+        val biliUrl = BILI_URL_REGEX.find(text)?.value
         val bili = if (biliUrl != null) {
             runCatching { api.biliPreview(biliUrl) }.getOrNull()
         } else {
             null
         }
         val webUrl = if (biliUrl == null) {
-            Regex("""https?://[^\s，。！？)]+""", RegexOption.IGNORE_CASE).find(text)?.value
+            URL_REGEX.find(text)?.value
         } else {
             null
         }
@@ -498,6 +496,63 @@ private fun ChatScreen(
             streamingText = ""
         } finally {
             busy = false
+        }
+    }
+
+    fun sendDraft() {
+        val attachment = draft ?: return
+        val text = input.trim()
+        draft = null
+        input = ""
+        scope.launch {
+            busy = true
+            status = "处理附件…"
+            val clientId = UUID.randomUUID().toString()
+            val pendingId = dao.insertPending(
+                PendingMessageEntity(
+                    content = text,
+                    clientMessageId = clientId,
+                    localUri = attachment.uri.toString(),
+                    attachmentKind = attachment.kind,
+                    attachmentName = attachment.name,
+                )
+            )
+            stickToBottom = true
+            withFrameNanos { }
+            listState.scrollToItem(0)
+            try {
+                when (attachment.kind) {
+                    "image" -> {
+                        if (attachment.mime == "image/gif") {
+                            val key = api.uploadMedia(context, attachment.uri)
+                            val caption = if (text.isBlank()) "[GIF:$key]" else "$text\n[GIF:$key]"
+                            api.chat(caption, clientId)
+                        } else {
+                            val dataUrl = MediaUtils.imageToDataUrl(context, attachment.uri)
+                            api.chatWithImage(text, dataUrl, clientId)
+                        }
+                    }
+                    "video" -> {
+                        val key = api.uploadMedia(context, attachment.uri)
+                        val caption = if (text.isBlank()) "[视频:$key]" else "$text\n[视频:$key]"
+                        api.chat(caption, clientId)
+                    }
+                    else -> {
+                        val doc = DocumentParser.parse(context, attachment.uri)
+                        val safeName = doc.name.replace('|', '_').replace(']', '_')
+                        val body = "[文件:$safeName|${attachment.size}|${attachment.mime.replace(']', '_')}]\n" +
+                            "【文件内容】\n${doc.text}"
+                        api.chat(if (text.isBlank()) body else "$text\n\n$body", clientId)
+                    }
+                }
+                syncEvents()
+                status = ""
+            } catch (e: Exception) {
+                failedPendingIds[pendingId] = true
+                status = "附件发送失败：${e.message}"
+            } finally {
+                busy = false
+            }
         }
     }
 
@@ -618,25 +673,15 @@ private fun ChatScreen(
     ) { uri ->
         if (uri != null) {
             scope.launch {
-                busy = true
-                status = "图片发送中…"
-                try {
-                    val mime = context.contentResolver.getType(uri)
-                    if (mime == "image/gif") {
-                        val key = api.uploadMedia(context, uri)
-                        api.chat("[GIF:$key]", UUID.randomUUID().toString())
-                    } else {
-                        val dataUrl = MediaUtils.imageToDataUrl(context, uri)
-                        api.chatWithImage("", dataUrl, UUID.randomUUID().toString())
-                    }
-                    delay(300)
-                    syncEvents()
-                    status = ""
-                } catch (e: Exception) {
-                    status = "图片发送失败：${e.message}"
-                } finally {
-                    busy = false
-                }
+                val mime = context.contentResolver.getType(uri) ?: "image/*"
+                draft = DraftAttachment(
+                    uri = uri,
+                    kind = "image",
+                    name = queryAttachmentName(context, uri),
+                    mime = mime,
+                    size = queryAttachmentSize(context, uri),
+                    preview = withContext(Dispatchers.IO) { loadDraftPreview(context, uri) },
+                )
             }
         }
     }
@@ -646,19 +691,14 @@ private fun ChatScreen(
     ) { uri ->
         if (uri != null) {
             scope.launch {
-                busy = true
-                status = "视频上传中…"
-                try {
-                    val key = api.uploadMedia(context, uri)
-                    api.chat("[视频:$key]", UUID.randomUUID().toString())
-                    delay(300)
-                    syncEvents()
-                    status = ""
-                } catch (e: Exception) {
-                    status = "视频发送失败：${e.message}"
-                } finally {
-                    busy = false
-                }
+                draft = DraftAttachment(
+                    uri = uri,
+                    kind = "video",
+                    name = queryAttachmentName(context, uri),
+                    mime = context.contentResolver.getType(uri) ?: "video/*",
+                    size = queryAttachmentSize(context, uri),
+                    preview = null,
+                )
             }
         }
     }
@@ -669,26 +709,14 @@ private fun ChatScreen(
         val uri = if (result.resultCode == Activity.RESULT_OK) result.data?.data else null
         if (uri != null) {
             scope.launch {
-                busy = true
-                status = "读取文件…"
-                try {
-                    val doc = DocumentParser.parse(context, uri)
-                    status = "发送文件内容…"
-                    val mime = context.contentResolver.getType(uri) ?: "application/octet-stream"
-                    val size = context.contentResolver.query(
-                        uri, arrayOf(OpenableColumns.SIZE), null, null, null
-                    )?.use { cursor -> if (cursor.moveToFirst()) cursor.getLong(0) else 0L } ?: 0L
-                    val safeName = doc.name.replace('|', '_').replace(']', '_')
-                    val content = "[文件:$safeName|$size|${mime.replace(']', '_')}]\n【文件内容】\n${doc.text}"
-                    api.chat(content, UUID.randomUUID().toString())
-                    delay(300)
-                    syncEvents()
-                    status = ""
-                } catch (e: Exception) {
-                    status = "文件解析失败：${e.message}"
-                } finally {
-                    busy = false
-                }
+                draft = DraftAttachment(
+                    uri = uri,
+                    kind = "file",
+                    name = queryAttachmentName(context, uri),
+                    mime = context.contentResolver.getType(uri) ?: "application/octet-stream",
+                    size = queryAttachmentSize(context, uri),
+                    preview = null,
+                )
             }
         }
     }
@@ -735,8 +763,8 @@ private fun ChatScreen(
         }
     }
 
-    val isTyping = busy && streamingText.isEmpty() && isTypingStatus(status)
-    val itemCount = messages.size + pending.size + if (streamingText.isNotEmpty() || isTyping) 1 else 0
+    val itemCount = messages.size + pending.size + if (streamingText.isNotEmpty()) 1 else 0
+    val canSend = !busy && (input.isNotBlank() || draft != null)
     val focusManager = LocalFocusManager.current
     var inputFocused by remember { mutableStateOf(false) }
 
@@ -887,10 +915,6 @@ private fun ChatScreen(
                 item(key = "streaming") {
                     StreamingBubble(streamingText, onReveal = scrollToLatest)
                 }
-            } else if (isTyping) {
-                item(key = "typing") {
-                    TypingBubble()
-                }
             }
             items(pending.asReversed(), key = { "pending-${it.id}" }) { message ->
                 PendingBubble(
@@ -969,6 +993,50 @@ private fun ChatScreen(
                         },
                     )
                 } else {
+                    draft?.let { attachment ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = Color(0xFFF1EDFF),
+                                border = BorderStroke(1.dp, Color(0x226C5CE7)),
+                                modifier = Modifier.size(58.dp),
+                            ) {
+                                if (attachment.preview != null) {
+                                    Image(
+                                        bitmap = attachment.preview.asImageBitmap(),
+                                        contentDescription = attachment.name,
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Crop,
+                                    )
+                                } else {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Text(
+                                            when (attachment.kind) {
+                                                "video" -> "视频"
+                                                "file" -> "文件"
+                                                else -> "图片"
+                                            },
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = Color(0xFF6C5CE7),
+                                        )
+                                    }
+                                }
+                            }
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                attachment.name,
+                                modifier = Modifier.weight(1f),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFF4A4555),
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            TextButton(onClick = { draft = null }) { Text("移除") }
+                        }
+                    }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.Bottom,
@@ -1017,7 +1085,7 @@ private fun ChatScreen(
                                 )
                                 .clip(CircleShape)
                                 .background(
-                                    if (!busy && input.isNotBlank()) {
+                                    if (canSend) {
                                         Brush.linearGradient(
                                             listOf(Color(0xFF7C5CFF), Color(0xFFA78BFA)),
                                         )
@@ -1027,17 +1095,21 @@ private fun ChatScreen(
                                         )
                                     },
                                 )
-                                .clickable(enabled = !busy && input.isNotBlank()) {
-                                    val text = input.trim()
-                                    input = ""
-                                    scope.launch { sendText(text) }
+                                .clickable(enabled = canSend) {
+                                    if (draft != null) {
+                                        sendDraft()
+                                    } else {
+                                        val text = input.trim()
+                                        input = ""
+                                        scope.launch { sendText(text) }
+                                    }
                                 },
                             contentAlignment = Alignment.Center,
                         ) {
                             Icon(
                                 Icons.Filled.Send,
                                 contentDescription = "发送",
-                                tint = if (!busy && input.isNotBlank()) Color.White else Color(0xFFAAA6B5),
+                                tint = if (canSend) Color.White else Color(0xFFAAA6B5),
                                 modifier = Modifier.size(21.dp),
                             )
                         }
@@ -1979,7 +2051,46 @@ private sealed interface ChatSegment {
     data class Voice(val text: String) : ChatSegment
 }
 
+private data class DraftAttachment(
+    val uri: Uri,
+    val kind: String,
+    val name: String,
+    val mime: String,
+    val size: Long,
+    val preview: Bitmap?,
+)
+
+private fun loadDraftPreview(context: Context, uri: Uri): Bitmap? =
+    runCatching {
+        context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }
+    }.getOrNull()
+
+private fun queryAttachmentName(context: Context, uri: Uri): String =
+    runCatching {
+        context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+            ?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
+    }.getOrNull().orEmpty().ifBlank { "附件" }
+
+private fun queryAttachmentSize(context: Context, uri: Uri): Long =
+    runCatching {
+        context.contentResolver.query(uri, arrayOf(OpenableColumns.SIZE), null, null, null)
+            ?.use { cursor -> if (cursor.moveToFirst()) cursor.getLong(0) else 0L }
+    }.getOrNull() ?: 0L
+
 private val VOICE_MARKERS = listOf("【语音】", "【语音消息】", "[语音消息]", "[语音]", "（语音）")
+
+/**
+ * URL 只吃合法 ASCII URL 字符，遇到中文/中文标点就停。
+ * 旧正则 [^\s，。！？)]+ 会把紧跟短链的中文一起吞进去，导致 B 站卡片吞掉正文。
+ */
+private val BILI_URL_REGEX = Regex(
+    """https?://(?:b23\.tv|(?:www\.)?bilibili\.com)/[A-Za-z0-9_?=&%./\-]+""",
+    RegexOption.IGNORE_CASE,
+)
+private val URL_REGEX = Regex(
+    """https?://[A-Za-z0-9\-._~:/?#\[\]@!%&'()*+,;=]+""",
+    RegexOption.IGNORE_CASE,
+)
 private val revealedMessageIds = java.util.Collections.synchronizedSet(mutableSetOf<Long>())
 
 private fun splitSentences(text: String): List<String> {
@@ -2062,9 +2173,6 @@ private fun parseChatSegments(raw: String): List<ChatSegment> {
     }
     return out
 }
-
-private fun isTypingStatus(status: String): Boolean =
-    status == "发送中…" || status == "接收中…" || status == "等待回复…"
 
 private fun messageTime(raw: String): String {
     val time = raw.substringAfter('T', "").take(5)
@@ -2183,28 +2291,6 @@ private fun StreamingBubble(text: String, onReveal: () -> Unit) {
 }
 
 @Composable
-private fun TypingBubble() {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.Start,
-    ) {
-        Surface(
-            shape = RoundedCornerShape(topStart = 4.dp, topEnd = 18.dp, bottomEnd = 18.dp, bottomStart = 18.dp),
-            color = Color.White,
-            border = BorderStroke(1.dp, Color(0x14000000)),
-            shadowElevation = 0.dp,
-        ) {
-            Text(
-                "大肥鱼 · 正在输入…",
-                modifier = Modifier.padding(horizontal = 13.dp, vertical = 10.dp),
-                style = MaterialTheme.typography.bodySmall,
-                color = Color(0xFF888888),
-            )
-        }
-    }
-}
-
-@Composable
 private fun ReadStatus(failed: Boolean) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(
@@ -2236,6 +2322,16 @@ private fun PendingBubble(
     failed: Boolean,
     onRetry: () -> Unit,
 ) {
+    val context = LocalContext.current
+    val localPreview = remember(message.localUri) {
+        message.localUri?.let { raw ->
+            runCatching {
+                context.contentResolver.openInputStream(Uri.parse(raw))?.use {
+                    BitmapFactory.decodeStream(it)
+                }
+            }.getOrNull()
+        }
+    }
     Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.End,
@@ -2276,17 +2372,37 @@ private fun PendingBubble(
                 shadowElevation = 0.dp,
             ) {
                 Column(modifier = Modifier.padding(horizontal = 15.dp, vertical = 12.dp)) {
-                    Text(
-                        replaceFaceMarkers(stripBiliMeta(message.content)),
-                        style = MaterialTheme.typography.bodyMedium.copy(
-                            lineHeight = 22.sp,
-                            letterSpacing = 0.15.sp,
-                        ),
-                        maxLines = 30,
-                        overflow = TextOverflow.Ellipsis,
-                        color = Color(0xFF26232E),
-                    )
-                    if (failed) {
+                    if (localPreview != null) {
+                        Image(
+                            bitmap = localPreview.asImageBitmap(),
+                            contentDescription = message.attachmentName ?: "待发送图片",
+                            modifier = Modifier
+                                .widthIn(max = 260.dp)
+                                .heightIn(max = 260.dp)
+                                .clip(RoundedCornerShape(12.dp)),
+                            contentScale = ContentScale.Fit,
+                        )
+                    } else if (message.attachmentKind != null) {
+                        Text(
+                            message.attachmentName ?: "待发送附件",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFF6C5CE7),
+                        )
+                    }
+                    if (message.content.isNotBlank()) {
+                        if (localPreview != null) Spacer(Modifier.height(6.dp))
+                        Text(
+                            replaceFaceMarkers(stripBiliMeta(message.content)),
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                lineHeight = 22.sp,
+                                letterSpacing = 0.15.sp,
+                            ),
+                            maxLines = 30,
+                            overflow = TextOverflow.Ellipsis,
+                            color = Color(0xFF26232E),
+                        )
+                    }
+                    if (failed && message.attachmentKind == null) {
                         TextButton(onClick = onRetry, enabled = !busy) { Text("重试") }
                     }
                 }
@@ -2356,15 +2472,12 @@ private fun MessageBubble(
         .trim()
     val isVoice = !isUser && voiceText.isNotEmpty()
 
-    val biliPattern = Regex(
-        """https?://(?:b23\.tv|(?:www\.)?bilibili\.com)/[^\s，。！？)]+""",
-        RegexOption.IGNORE_CASE,
-    )
+    val biliPattern = BILI_URL_REGEX
     val biliUrls = biliPattern.findAll(displayText)
         .map { it.value.trimEnd(')', ']', '】', '。', '，', '！', '？') }
         .distinct()
         .toList()
-    val webPattern = Regex("""https?://[^\s，。！？)]+""", RegexOption.IGNORE_CASE)
+    val webPattern = URL_REGEX
     val webUrls = webPattern.findAll(displayText)
         .map { it.value.trimEnd(')', ']', '】', '。', '，', '！', '？') }
         .filterNot { biliPattern.containsMatchIn(it) }

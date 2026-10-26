@@ -5,6 +5,7 @@ import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -33,4 +34,18 @@ interface MessageDao {
 
     @Delete
     suspend fun deletePending(message: PendingMessageEntity)
+
+    @Query("DELETE FROM pending_messages WHERE clientMessageId IN (:ids)")
+    suspend fun deletePendingByClientIds(ids: List<String>)
+
+    /**
+     * 服务端消息落库与 pending 清理放在同一个 Room transaction：
+     * 避免轮询先插入服务端 user 行时，本地 pending 还留着，短暂出现两条自己的消息。
+     */
+    @Transaction
+    suspend fun applyServerMessages(messages: List<MessageEntity>) {
+        insertAll(messages)
+        val ids = messages.mapNotNull { it.clientMessageId }.distinct()
+        if (ids.isNotEmpty()) deletePendingByClientIds(ids)
+    }
 }

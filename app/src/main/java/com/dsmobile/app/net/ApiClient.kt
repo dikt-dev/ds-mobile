@@ -189,6 +189,8 @@ class ApiClient(
                                 createdAt = m.optString("created_at"),
                                 turnId = if (m.isNull("turn_id")) null else m.optLong("turn_id"),
                                 proactiveKind = if (m.isNull("proactive_kind")) null else m.optString("proactive_kind"),
+                                clientMessageId = m.optString("client_message_id")
+                                    .takeIf { it.isNotBlank() },
                             )
                         )
                     }
