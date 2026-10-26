@@ -113,6 +113,21 @@ class ApiClient(
         }
     }
 
+    /** 显式纠正长期记忆：用户发送 /更正 ... 时调用。 */
+    suspend fun correctMemory(text: String) = withContext(Dispatchers.IO) {
+        val body = JSONObject().put("text", text)
+        val request = Request.Builder()
+            .url("$baseUrl/api/app/memory/correct")
+            .header("Authorization", "Bearer ${requireToken()}")
+            .post(body.toString().toRequestBody(jsonType))
+            .build()
+        execute(request).use { response ->
+            if (!response.isSuccessful) {
+                throw ApiException(errorText(response.code, response.body?.string().orEmpty()))
+            }
+        }
+    }
+
     /** App 拉主动消息队列：先本地通知，再 ACK 清队列。 */
     suspend fun proactivePending(limit: Int = 20): List<ProactivePush> = withContext(Dispatchers.IO) {
         val request = Request.Builder()

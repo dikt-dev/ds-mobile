@@ -411,6 +411,26 @@ private fun ChatScreen(
     }
 
     suspend fun sendText(text: String) {
+        val trimmed = text.trim()
+        if (trimmed.startsWith("/更正")) {
+            val fact = trimmed.removePrefix("/更正").trim()
+            if (fact.isBlank()) {
+                android.widget.Toast.makeText(context, "用法：/更正 职业=嵌入式开发", android.widget.Toast.LENGTH_SHORT).show()
+                return
+            }
+            busy = true
+            status = "正在更正记忆…"
+            try {
+                api.correctMemory(fact)
+                android.widget.Toast.makeText(context, "记忆已更正", android.widget.Toast.LENGTH_SHORT).show()
+                status = ""
+            } catch (e: Exception) {
+                status = "记忆更正失败：${e.message}"
+            } finally {
+                busy = false
+            }
+            return
+        }
         stickToBottom = true
         busy = true
         // 等待回复期间不显示“正在输入”气泡，只在需要时保留底层状态。
@@ -759,6 +779,29 @@ private fun ChatScreen(
                 syncEvents()
             } catch (_: Exception) {
                 // 后台轮询失败不打断界面，下一轮重试
+            }
+        }
+    }
+
+    // 首屏把最近几张动图预解码到内存，避免第一次弹出键盘时才开始解码动画。
+    // 这是有限预热，不做全量预加载；原图字节仍走 MediaDiskCache。
+    LaunchedEffect(historyReady) {
+        if (!historyReady) return@LaunchedEffect
+        withContext(Dispatchers.IO) {
+            val mediaPattern = Regex("""\[(?:图片|GIF):([^\]]+)]""")
+            val keys = messages.takeLast(12)
+                .flatMap { m -> mediaPattern.findAll(m.content).map { it.groupValues[1] }.toList() }
+                .distinct()
+                .take(6)
+            for (key in keys) {
+                if (MediaCaches.image(key) != null) continue
+                runCatching {
+                    val bytes = api.image(key)
+                    val drawable = ImageDecoder.decodeDrawable(
+                        ImageDecoder.createSource(java.nio.ByteBuffer.wrap(bytes))
+                    )
+                    MediaCaches.putImage(key, drawable)
+                }
             }
         }
     }
