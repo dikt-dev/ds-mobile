@@ -759,6 +759,8 @@ private fun ChatScreen(
             // 首装全量补齐历史；已有旧版本缓存则增量 + 往前回填更早的记录。
             if (dao.maxId() == 0L) {
                 syncAllHistory()
+                // D1 只有最近两天；首装也要继续从 R2 归档把更早的历史回灌。
+                backfillOlderHistory()
             } else {
                 syncEvents()
                 backfillOlderHistory()
