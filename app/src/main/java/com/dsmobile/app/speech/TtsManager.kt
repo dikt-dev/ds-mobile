@@ -93,34 +93,12 @@ object TtsManager {
         val start = System.currentTimeMillis()
         val style = styleFor(text)
         val token = settings.token
-        val bytes = if (!token.isNullOrBlank()) {
-            try {
-                workerTts(settings, token, text, style)
-            } catch (e: Exception) {
-                Log.w(TAG, "worker tts failed, fallback direct: ${e.message}")
-                if (settings.azureKey.isBlank()) throw e
-                azureTts(
-                    key = settings.azureKey,
-                    region = settings.azureRegion,
-                    voice = settings.azureVoice,
-                    rate = settings.azureRate,
-                    pitch = settings.azurePitch,
-                    styleDegree = settings.azureStyleDegree,
-                    style = style,
-                    text = text,
-                )
-            }
-        } else {
-            azureTts(
-                key = settings.azureKey,
-                region = settings.azureRegion,
-                voice = settings.azureVoice,
-                rate = settings.azureRate,
-                pitch = settings.azurePitch,
-                styleDegree = settings.azureStyleDegree,
-                style = style,
-                text = text,
-            )
+        val bytes = runCatching {
+            requestBytes(settings, token, text, style)
+        }.getOrElse { first ->
+            if (style.isBlank()) throw first
+            Log.w(TAG, "style tts failed, retry neutral: ${first.message}")
+            requestBytes(settings, token, text, "")
         }
         val fetched = System.currentTimeMillis()
         target.parentFile?.mkdirs()
@@ -141,6 +119,7 @@ object TtsManager {
             settings.azureRate,
             settings.azurePitch,
             settings.azureStyleDegree,
+            styleFor(text),
             text,
         ).joinToString("|")
         val digest = MessageDigest.getInstance("SHA-256").digest(raw.toByteArray())
@@ -153,6 +132,34 @@ object TtsManager {
         val files = dir.listFiles()?.filter { it.extension == "mp3" } ?: return
         if (files.size <= 30) return
         files.sortedBy { it.lastModified() }.take(files.size - 30).forEach { it.delete() }
+    }
+
+    private suspend fun requestBytes(
+        settings: SettingsStore,
+        token: String?,
+        text: String,
+        style: String,
+    ): ByteArray {
+        if (!token.isNullOrBlank()) {
+            try {
+                return workerTts(settings, token, text, style)
+            } catch (e: Exception) {
+                Log.w(TAG, "worker tts failed, fallback direct: ${e.message}")
+                if (settings.azureKey.isBlank()) throw e
+            }
+        }
+        return withContext(Dispatchers.IO) {
+            azureTts(
+                key = settings.azureKey,
+                region = settings.azureRegion,
+                voice = settings.azureVoice,
+                rate = settings.azureRate,
+                pitch = settings.azurePitch,
+                styleDegree = settings.azureStyleDegree,
+                style = style,
+                text = text,
+            )
+        }
     }
 
     private fun workerTts(
@@ -226,17 +233,23 @@ object TtsManager {
     }
 
     /** 从 tts_router.py 迁移的情绪 style 映射。 */
+    /** 中文情绪关键词 → Azure style；顺序从强到弱，避免“别担心”误判成 sad。 */
+    /** 中文情绪关键词 → Azure style；顺序从强到弱，避免“别担心”误判成 sad。 */
     private fun styleFor(text: String): String = when {
+        listOf("耳语", "小声", "悄悄", "嘘").any { text.contains(it) } -> "whispering"
         listOf("傲娇", "毒舌", "嘴硬", "别扭", "嫌弃", "不屑", "冷哼").any { text.contains(it) } ->
             "disgruntled"
-        listOf("炸毛", "生气", "凶", "恼火").any { text.contains(it) } -> "angry"
-        listOf("心软", "撒娇", "温柔", "喜欢").any { text.contains(it) } -> "affectionate"
-        listOf("委屈", "难过", "伤心", "哭").any { text.contains(it) } -> "sad"
-        listOf("得意", "开心", "高兴", "兴奋", "活泼", "笑").any { text.contains(it) } -> "cheerful"
+        listOf("炸毛", "生气", "愤怒", "恼火").any { text.contains(it) } -> "angry"
+        listOf("委屈", "难过", "伤心", "想哭", "呜").any { text.contains(it) } -> "sad"
+        listOf("别担心", "慢慢来", "安慰", "抱抱", "乖", "心软", "温柔", "撒娇", "喜欢").any { text.contains(it) } ->
+            "gentle"
+        listOf("太棒", "好耶", "惊喜", "激动", "兴奋", "冲呀").any { text.contains(it) } -> "excited"
+        listOf("理解", "共情", "我懂", "辛苦", "不容易").any { text.contains(it) } -> "empathetic"
+        listOf("得意", "开心", "高兴", "活泼", "笑").any { text.contains(it) } -> "cheerful"
         else -> ""
     }
 
-    private fun play(context: Context, file: File) {
+private fun play(context: Context, file: File) {
         try {
             player?.release()
             player = MediaPlayer().apply {
