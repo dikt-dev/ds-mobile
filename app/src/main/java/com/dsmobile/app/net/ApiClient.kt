@@ -19,6 +19,9 @@ import org.json.JSONObject
 import java.io.File
 import java.util.concurrent.TimeUnit
 
+/** 服务端允许“这轮不回复”时返回的哨兵，不是要显示的文本。 */
+const val NO_REPLY = "[END]"
+
 data class EventPage(val messages: List<MessageEntity>, val latestId: Long, val hasMore: Boolean)
 
 data class ProactivePush(
@@ -252,8 +255,11 @@ class ApiClient(
         execute(request).use { response ->
             val textBody = response.body?.string().orEmpty()
             if (!response.isSuccessful) throw ApiException(errorText(response.code, textBody))
-            JSONObject(textBody)
-                .optJSONArray("choices")
+            val obj = JSONObject(textBody)
+            if (obj.optBoolean("no_reply", false)) {
+                return@withContext NO_REPLY
+            }
+            obj.optJSONArray("choices")
                 ?.optJSONObject(0)
                 ?.optJSONObject("message")
                 ?.optString("content")
@@ -308,7 +314,9 @@ class ApiClient(
                         onDelta(delta)
                     }
                 }
-                builder.toString().ifBlank { throw ApiException("回复为空") }
+                val result = builder.toString().trim()
+                if (result == NO_REPLY) NO_REPLY
+                else result.ifBlank { throw ApiException("回复为空") }
             }
         }
 
@@ -398,8 +406,11 @@ class ApiClient(
         execute(request).use { response ->
             val textBody = response.body?.string().orEmpty()
             if (!response.isSuccessful) throw ApiException(errorText(response.code, textBody))
-            JSONObject(textBody)
-                .optJSONArray("choices")
+            val obj = JSONObject(textBody)
+            if (obj.optBoolean("no_reply", false)) {
+                return@withContext NO_REPLY
+            }
+            obj.optJSONArray("choices")
                 ?.optJSONObject(0)
                 ?.optJSONObject("message")
                 ?.optString("content")
