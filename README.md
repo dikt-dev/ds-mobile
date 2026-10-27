@@ -1,12 +1,15 @@
 # DS-Mobile
 
-红米 K60（Android 15）上的私有聊天客户端，直接对接 `ds-memory` Worker，替代 QQ + Termux/NapCat 手机端。
+红米 K60（Android 15）上的私有聊天客户端，直接对接 `ds-memory` Worker，**已取代 QQ + Termux/NapCat，是唯一的移动入口**。
+
+> 2026-10-25 起 QQ/Termux 已从手机卸载，DS-Mobile 保持运行（见 [docs/RETIREMENT.md](docs/RETIREMENT.md)）。
 
 ## 文档
 
-- [项目报告](docs/PROJECT_REPORT.md)
-- [API 契约](docs/API_CONTRACT.md)
-- [阶段 0 验收](docs/PHASE0_ACCEPTANCE.md)
+- [项目报告](docs/PROJECT_REPORT.md)（评审稿 v1.0，含阶段规划与验收标准）
+- [API 契约](docs/API_CONTRACT.md)（阶段 0 冻结稿）
+- [交付包说明](docs/DELIVERY.md)（安装包、SHA-256、已具备能力与已知缺口）
+- 阶段验收：`docs/PHASE0_ACCEPTANCE.md` ~ `docs/PHASE6_DEBUG_SERVICE.md`
 
 ## 环境
 
@@ -29,44 +32,22 @@ $env:GRADLE_USER_HOME='D:\Android\gradle'
 ## 安装
 
 ```powershell
-adb install -r app\build\outputs\apk\debug\app-debug.apk
+adb install -r dist\DS-Mobile-0.1.0.apk
 adb shell am start -n com.dsmobile.app/.ChatActivity
 ```
 
-## 当前进度
+## 当前进度（全部阶段已完成）
 
-### 阶段 0
+- **阶段 0**：前台服务（每 3 秒检查 `/api/health`，划掉后台仍运行）、HyperOS 自启动、SSH/SFTP 调试（8022）、PDF/ZIP spike、API 契约冻结；
+- **阶段 1（MVP）**：配对码换设备 Token（加密存储，旧明文自动迁移）、文字聊天、Room 本地库、5 秒增量轮询、SSE 流式、`client_message_id` 幂等、历史显示全部渠道、后台通知、主动消息队列消费、心跳保活、发送 outbox 重试；
+- **阶段 2**：划掉后台前台服务存活抽测通过（8 小时稳定性按用户要求暂缓）；
+- **阶段 3**：图片（Photo Picker → 本地压缩 1600/JPEG 82% → 发送 → R2 回放）、视频/GIF 上传与内嵌播放；
+- **阶段 4**：语音按钮（Azure STT / 系统 ASR）、AI `[语音]` 消息条、Azure TTS（走 Worker `/api/app/tts` 代理）+ 本地 TTS 兜底、音色从旧 voice.toml 迁移（Xiaoyi +5% +3Hz style 1.2）；
+- **阶段 5**：文件解析（PDF/TXT 端到端；DOCX/XLSX/PPTX/ZIP/7z/RAR4 自测通过；扫描 PDF ML Kit OCR；RAR5 暂不支持）；
+- **阶段 6**：SSH/SFTP 调试（8022，RSA 公钥或随机密码，30 分钟自动关闭，根目录隔离在 App filesDir）。
 
-- 前台服务：每 3 秒检查 `https://fae.us.ci/api/health`，划掉后台仍运行；
-- 重启自启：HyperOS 自启动/无限制省电后，重启自动恢复；
-- SSH/SFTP 调试：8022，阶段 0 为临时随机密码，正式版改公钥；
-- PDF/ZIP 解析 spike：50 页 PDF + 100 条目 ZIP；
-- API 契约已冻结。
+## 已退役
 
-### 阶段 1（MVP）
-
-- 默认启动页改为聊天；
-- 配对码换设备 Token（当前配对码临时用 `ASTROBOT_API_KEY`）；
-- 文字聊天、Room 本地库、5 秒增量轮询；
-- SSE 流式回复；
-- `client_message_id` 幂等，超时重试不会重复落库；
-- 图片消息：相册选图、本地压缩、发送、R2 回放；
-- 文件解析：PDF/TXT 端到端通过；DOCX/XLSX/PPTX/ZIP/7z 解析器自测通过；文件消息使用独立文件卡片显示；
-- 分享链接：B站卡片 + 摘要/总结/字幕，普通网页/抖音卡片 + 摘要；
-- 视频/GIF：上传 R2，视频内嵌播放，GIF 动图播放；
-- 历史显示 Web/QQ/App 全部渠道；
-- 后台助手消息通知（`DS-Mobile 消息` 渠道）：悬浮横幅、锁屏公开、桌面角标、声音和震动；打开 App 清除角标；
-- 主动消息：前台服务每 30 秒消费 `/api/proactive/pending`，先本地通知再 ACK；
-- `message_id` 去重，events 同步和队列推送不会重复通知；
-- 每 5 分钟 App 心跳；划掉最近任务后 `onTaskRemoved` + `START_STICKY` 自动拉起；
-- `[face:名称]` 转 emoji（未收录保留 `[名称]`），语音标记继续按气泡展示；
-- 语音只念台词：`（）` / `()` 里的动作描述只保留在转文字里，TTS 播放前剥离；
-- `inject_history: true`，Worker 补最近 10 轮；
-- 重启后自动恢复服务并继续收通知；
-- 发送 outbox：失败消息保留在本地，可在气泡上重试；
-- Token 用 EncryptedSharedPreferences 保存，旧明文自动迁移；
-- 实测发送 `App test reply OK` 并收到 AI 回复。
-
-详见 [阶段 1 验收](docs/PHASE1_ACCEPTANCE.md)。
+QQ / Termux / NapCat 手机端链路已于 2026-10-25 卸载，见 [docs/RETIREMENT.md](docs/RETIREMENT.md)。旧的 `ds-qq-client`（Python + NapCat）已从工作区删除。
 
 > 注意：`local.properties`、keystore、日志不要提交。

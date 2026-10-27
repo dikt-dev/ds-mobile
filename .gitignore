@@ -15,3 +15,5 @@ captures/
 build-log-*.txt
 build-log.txt
 
+
+.kotlin/
