@@ -13,6 +13,7 @@ import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.AnimatedImageDrawable
 import android.graphics.drawable.Drawable
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
@@ -174,6 +175,15 @@ class ChatActivity : ComponentActivity() {
         super.onResume()
         com.dsmobile.app.service.KeepAliveService.appVisible = true
         com.dsmobile.app.service.KeepAliveService.clearMessageNotification(this)
+        // HyperOS 有时不遵守 Manifest 的 excludeFromRecents，运行时再设置一次当前任务。
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            runCatching {
+                getSystemService(android.app.ActivityManager::class.java)
+                    ?.appTasks
+                    ?.firstOrNull()
+                    ?.setExcludeFromRecents(true)
+            }
+        }
     }
 
     override fun onPause() {
