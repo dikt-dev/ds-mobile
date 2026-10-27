@@ -12,6 +12,7 @@ import android.graphics.ImageDecoder
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.AnimatedImageDrawable
 import android.graphics.drawable.Drawable
+import android.location.LocationManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -127,6 +128,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Keyboard
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Photo
 import androidx.compose.material.icons.filled.Send
@@ -356,6 +358,11 @@ private fun ChatScreen(
     var input by remember { mutableStateOf("") }
     var draft by remember { mutableStateOf<DraftAttachment?>(null) }
     var busy by remember { mutableStateOf(false) }
+    var showLocationDialog by remember { mutableStateOf(false) }
+    var locationLat by remember { mutableStateOf<Double?>(null) }
+    var locationLng by remember { mutableStateOf<Double?>(null) }
+    var locationAccuracy by remember { mutableStateOf(0f) }
+    var locationReason by remember { mutableStateOf("用户主动更新位置") }
     var status by remember { mutableStateOf("") }
     var streamingText by remember { mutableStateOf("") }
     var showSettings by remember { mutableStateOf(false) }
@@ -695,6 +702,52 @@ private fun ChatScreen(
         }
     }
 
+    fun fetchLocation() {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            status = "需要定位权限"
+            return
+        }
+        try {
+            val lm = context.getSystemService(LocationManager::class.java)
+            val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
+            val last = providers
+                .mapNotNull { p -> runCatching { lm.getLastKnownLocation(p) }.getOrNull() }
+                .maxByOrNull { it.time }
+            if (last != null) {
+                locationLat = last.latitude
+                locationLng = last.longitude
+                locationAccuracy = last.accuracy
+                showLocationDialog = true
+                return
+            }
+            val provider = providers.firstOrNull { lm.isProviderEnabled(it) }
+            if (provider == null) {
+                status = "定位服务未开启"
+                return
+            }
+            lm.getCurrentLocation(provider, null, ContextCompat.getMainExecutor(context)) { loc ->
+                if (loc == null) {
+                    status = "暂时拿不到当前位置"
+                } else {
+                    locationLat = loc.latitude
+                    locationLng = loc.longitude
+                    locationAccuracy = loc.accuracy
+                    showLocationDialog = true
+                }
+            }
+        } catch (e: Exception) {
+            status = "定位失败：${e.message}"
+        }
+    }
+
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) fetchLocation() else status = "需要定位权限"
+    }
+
     val imagePicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia()
     ) { uri ->
@@ -796,12 +849,13 @@ private fun ChatScreen(
     // 这是有限预热，不做全量预加载；原图字节仍走 MediaDiskCache。
     LaunchedEffect(historyReady) {
         if (!historyReady) return@LaunchedEffect
+        delay(1_200) // 让首屏先完成布局，避免预解码和第一次键盘弹出抢 CPU
         withContext(Dispatchers.IO) {
             val mediaPattern = Regex("""\[(?:图片|GIF):([^\]]+)]""")
             val keys = messages.takeLast(12)
                 .flatMap { m -> mediaPattern.findAll(m.content).map { it.groupValues[1] }.toList() }
                 .distinct()
-                .take(6)
+                .take(4)
             for (key in keys) {
                 if (MediaCaches.image(key) != null) continue
                 runCatching {
@@ -1201,9 +1255,69 @@ private fun ChatScreen(
                             ComposerAction(Icons.Filled.Mic, "语音", !busy) {
                                 voiceMode = true
                             }
+                            ComposerAction(Icons.Filled.LocationOn, "定位", !busy) {
+                                if (ContextCompat.checkSelfPermission(
+                                        context,
+                                        Manifest.permission.ACCESS_FINE_LOCATION,
+                                    ) == PackageManager.PERMISSION_GRANTED
+                                ) {
+                                    fetchLocation()
+                                } else {
+                                    locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                                }
+                            }
                         }
                 }
             }
+        }
+        if (showLocationDialog && locationLat != null && locationLng != null) {
+            AlertDialog(
+                onDismissRequest = { showLocationDialog = false },
+                title = { Text("更新当前位置") },
+                text = {
+                    Column {
+                        Text(
+                            "纬度 ${"%.5f".format(locationLat)}，经度 ${"%.5f".format(locationLng)}" +
+                                if (locationAccuracy > 0) "（精度约 ${locationAccuracy.toInt()}m）" else ""
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = locationReason,
+                            onValueChange = { locationReason = it.take(120) },
+                            label = { Text("变更原因") },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                },
+                confirmButton = {
+                    TextButton(
+                        enabled = !busy,
+                        onClick = {
+                            val lat = locationLat ?: return@TextButton
+                            val lng = locationLng ?: return@TextButton
+                            scope.launch {
+                                busy = true
+                                try {
+                                    api.updateLocation(lat, lng, locationAccuracy, locationReason)
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        "位置已更新并记入记忆",
+                                        android.widget.Toast.LENGTH_SHORT,
+                                    ).show()
+                                    showLocationDialog = false
+                                } catch (e: Exception) {
+                                    status = "位置更新失败：${e.message}"
+                                } finally {
+                                    busy = false
+                                }
+                            }
+                        },
+                    ) { Text("确认更新") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showLocationDialog = false }) { Text("取消") }
+                },
+            )
         }
         if (showSettings) {
             SettingsDialog(
@@ -2719,7 +2833,8 @@ private fun VideoBubble(api: ApiClient, key: String) {
 private fun GifBubble(api: ApiClient, key: String) {
     var drawable by remember(key) { mutableStateOf(MediaCaches.image(key)) }
     var failed by remember(key) { mutableStateOf(false) }
-    LaunchedEffect(key) {
+    var attempt by remember(key) { mutableStateOf(0) }
+    LaunchedEffect(key, attempt) {
         if (drawable == null) {
             failed = false
             runCatching { api.mediaBytes(key) }
@@ -2755,11 +2870,15 @@ private fun GifBubble(api: ApiClient, key: String) {
                 .width(220.dp)
                 .height(120.dp)
                 .clip(RoundedCornerShape(12.dp))
-                .background(Color(0xFFF0EEF6)),
+                .background(Color(0xFFF0EEF6))
+                .clickable(enabled = failed) {
+                    failed = false
+                    attempt++
+                },
             contentAlignment = Alignment.Center,
         ) {
             Text(
-                if (failed) "动态加载失败" else "动态加载中…",
+                if (failed) "动态加载失败，点此重试" else "动态加载中…",
                 style = MaterialTheme.typography.labelSmall,
                 color = Color(0xFF888888),
             )

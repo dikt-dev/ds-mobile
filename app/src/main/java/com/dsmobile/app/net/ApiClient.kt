@@ -128,6 +128,26 @@ class ApiClient(
         }
     }
 
+    /** 用户确认后更新当前位置；服务端写入记忆并记录原因。 */
+    suspend fun updateLocation(latitude: Double, longitude: Double, accuracy: Float, reason: String) =
+        withContext(Dispatchers.IO) {
+            val body = JSONObject()
+                .put("latitude", latitude)
+                .put("longitude", longitude)
+                .put("accuracy", accuracy.toDouble())
+                .put("reason", reason.take(120))
+            val request = Request.Builder()
+                .url("$baseUrl/api/app/location")
+                .header("Authorization", "Bearer ${requireToken()}")
+                .post(body.toString().toRequestBody(jsonType))
+                .build()
+            execute(request).use { response ->
+                if (!response.isSuccessful) {
+                    throw ApiException(errorText(response.code, response.body?.string().orEmpty()))
+                }
+            }
+        }
+
     /** App 拉主动消息队列：先本地通知，再 ACK 清队列。 */
     suspend fun proactivePending(limit: Int = 20): List<ProactivePush> = withContext(Dispatchers.IO) {
         val request = Request.Builder()
