@@ -551,7 +551,7 @@ class ApiClient(
                                             .map { body!!.optJSONObject(it).optString("content").trim() }
                                             .filter { it.isNotEmpty() }
                                         subtitleCount = lines.size
-                                        subtitle = lines.joinToString("\n").take(4000)
+                                        subtitle = lines.joinToString("\n")
                                     }
                                 }
                             }
