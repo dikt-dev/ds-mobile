@@ -27,7 +27,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.animateContentSize
 import androidx.core.content.ContextCompat
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
@@ -845,11 +844,14 @@ private fun ChatScreen(
             }
         }
     }
+    fun atBottom(): Boolean =
+        listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0
+
     val scrollToLatest: () -> Unit = {
         scope.launch {
             if (!stickToBottom) return@launch
             delay(120)
-            if (itemCount > 0 && !listState.isScrollInProgress) {
+            if (itemCount > 0 && !listState.isScrollInProgress && !atBottom()) {
                 listState.animateScrollToItem(0)
             }
         }
@@ -864,8 +866,8 @@ private fun ChatScreen(
                 delay(40)
             }
             initialScrollDone = true
-        } else if (stickToBottom && !listState.isScrollInProgress) {
-            // 新回复到达时用短动画贴底，避免瞬移造成闪跳。
+        } else if (stickToBottom && !listState.isScrollInProgress && !atBottom()) {
+            // 已经在底部时不再滚动；新 item 已经在 index 0，额外滚动只会造成闪跳。
             listState.animateScrollToItem(0)
         }
     }
@@ -1942,7 +1944,7 @@ private fun SegmentedMessage(
         }
     }
     Column(
-        modifier = Modifier.fillMaxWidth().animateContentSize(),
+        modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(7.dp),
     ) {
         Text(
@@ -2716,19 +2718,24 @@ private fun VideoBubble(api: ApiClient, key: String) {
 @Composable
 private fun GifBubble(api: ApiClient, key: String) {
     var drawable by remember(key) { mutableStateOf(MediaCaches.image(key)) }
+    var failed by remember(key) { mutableStateOf(false) }
     LaunchedEffect(key) {
         if (drawable == null) {
-            runCatching { api.mediaBytes(key) }.onSuccess { bytes ->
-                val decoded = ImageDecoder.decodeDrawable(
-                    ImageDecoder.createSource(java.nio.ByteBuffer.wrap(bytes))
-                )
-                (decoded as? AnimatedImageDrawable)?.start()
-                MediaCaches.putImage(key, decoded)
-                drawable = decoded
-            }
+            failed = false
+            runCatching { api.mediaBytes(key) }
+                .onSuccess { bytes ->
+                    val decoded = ImageDecoder.decodeDrawable(
+                        ImageDecoder.createSource(java.nio.ByteBuffer.wrap(bytes))
+                    )
+                    (decoded as? AnimatedImageDrawable)?.start()
+                    MediaCaches.putImage(key, decoded)
+                    drawable = decoded
+                }
+                .onFailure { failed = true }
         }
     }
-    drawable?.let { gif ->
+    val gif = drawable
+    if (gif != null) {
         (gif as? AnimatedImageDrawable)?.start()
         AndroidView(
             factory = { ctx ->
@@ -2742,6 +2749,21 @@ private fun GifBubble(api: ApiClient, key: String) {
                 .heightIn(max = 260.dp)
                 .clip(RoundedCornerShape(12.dp)),
         )
+    } else {
+        Box(
+            modifier = Modifier
+                .width(220.dp)
+                .height(120.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color(0xFFF0EEF6)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                if (failed) "动态加载失败" else "动态加载中…",
+                style = MaterialTheme.typography.labelSmall,
+                color = Color(0xFF888888),
+            )
+        }
     }
 }
 
