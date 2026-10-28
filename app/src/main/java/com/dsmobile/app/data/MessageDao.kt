@@ -20,6 +20,9 @@ interface MessageDao {
     @Query("UPDATE messages SET content = TRIM(REPLACE(content, '[END]', '')) WHERE content LIKE '%[END]%'")
     suspend fun stripSilentEndMarkers()
 
+    @Query("UPDATE messages SET content = TRIM(SUBSTR(content, INSTR(content, ']') + 1)) WHERE content LIKE '[10-%]%' AND INSTR(content, ']') > 0")
+    suspend fun stripLeadingTimeLabels()
+
     @Query("SELECT COALESCE(MAX(id), 0) FROM messages")
     suspend fun maxId(): Long
 
