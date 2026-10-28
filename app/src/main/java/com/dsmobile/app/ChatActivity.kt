@@ -816,6 +816,8 @@ private fun ChatScreen(
 
     LaunchedEffect(Unit) {
         try {
+            // 旧版本可能已把 [END] 当成正文落进 Room，启动时清理一次。
+            dao.stripSilentEndMarkers()
             // 首装全量补齐历史；已有旧版本缓存则增量 + 往前回填更早的记录。
             if (dao.maxId() == 0L) {
                 syncAllHistory()

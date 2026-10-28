@@ -17,6 +17,9 @@ interface MessageDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(messages: List<MessageEntity>)
 
+    @Query("UPDATE messages SET content = TRIM(REPLACE(content, '[END]', '')) WHERE content LIKE '%[END]%'")
+    suspend fun stripSilentEndMarkers()
+
     @Query("SELECT COALESCE(MAX(id), 0) FROM messages")
     suspend fun maxId(): Long
 

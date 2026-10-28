@@ -259,12 +259,14 @@ class ApiClient(
             if (obj.optBoolean("no_reply", false)) {
                 return@withContext NO_REPLY
             }
-            obj.optJSONArray("choices")
+            val content = obj.optJSONArray("choices")
                 ?.optJSONObject(0)
                 ?.optJSONObject("message")
                 ?.optString("content")
                 ?.takeIf { it.isNotBlank() }
                 ?: throw ApiException("回复为空")
+            val cleaned = content.replace(NO_REPLY, "").trim()
+            if (cleaned.isBlank()) NO_REPLY else cleaned
         }
     }
 
@@ -314,9 +316,8 @@ class ApiClient(
                         onDelta(delta)
                     }
                 }
-                val result = builder.toString().trim()
-                if (result == NO_REPLY) NO_REPLY
-                else result.ifBlank { throw ApiException("回复为空") }
+                val result = builder.toString().replace(NO_REPLY, "").trim()
+                if (result.isBlank()) NO_REPLY else result
             }
         }
 
@@ -410,12 +411,14 @@ class ApiClient(
             if (obj.optBoolean("no_reply", false)) {
                 return@withContext NO_REPLY
             }
-            obj.optJSONArray("choices")
+            val content = obj.optJSONArray("choices")
                 ?.optJSONObject(0)
                 ?.optJSONObject("message")
                 ?.optString("content")
                 ?.takeIf { it.isNotBlank() }
                 ?: throw ApiException("回复为空")
+            val cleaned = content.replace(NO_REPLY, "").trim()
+            if (cleaned.isBlank()) NO_REPLY else cleaned
         }
     }
 
