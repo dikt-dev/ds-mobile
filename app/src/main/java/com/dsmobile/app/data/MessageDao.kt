@@ -38,6 +38,9 @@ interface MessageDao {
     @Query("SELECT * FROM pending_messages ORDER BY id ASC")
     fun observePending(): Flow<List<PendingMessageEntity>>
 
+    @Query("SELECT * FROM pending_messages ORDER BY id ASC")
+    suspend fun pending(): List<PendingMessageEntity>
+
     @Delete
     suspend fun deletePending(message: PendingMessageEntity)
 

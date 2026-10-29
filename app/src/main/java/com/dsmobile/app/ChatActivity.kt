@@ -403,6 +403,30 @@ private fun ChatScreen(
         if (all.isNotEmpty()) dao.applyServerMessages(all)
     }
 
+    /**
+     * pending 对账：断网/超时后服务端可能已经落库，本地 pending 不能永远卡在底部。
+     * 服务端按 client_message_id 查；找到就删除 pending，找不到才标记失败。
+     */
+    suspend fun reconcilePending() {
+        val rows = dao.pending()
+        if (rows.isEmpty()) return
+        val ids = rows.map { it.clientMessageId }.filter { it.isNotBlank() }
+        if (ids.isEmpty()) return
+        val found = runCatching { api.clientMessages(ids) }.getOrNull()
+        if (found == null) {
+            // 网络不可用时也要让旧 pending 显示“失败/重试”，不能继续伪装成发送中。
+            rows.forEach { failedPendingIds[it.id] = true }
+            return
+        }
+        if (found.isNotEmpty()) {
+            dao.applyServerMessages(found)
+            val matched = found.mapNotNull { it.clientMessageId }.toSet()
+            rows.filter { it.clientMessageId in matched }.forEach { failedPendingIds.remove(it.id) }
+        }
+        val matched = found.mapNotNull { it.clientMessageId }.toSet()
+        rows.filter { it.clientMessageId !in matched }.forEach { failedPendingIds[it.id] = true }
+    }
+
     /** 老版本本地库只有最近 300 条；从本地最小 id 往前回填。 */
     suspend fun backfillOlderHistory() {
         var before = dao.minId()
@@ -526,6 +550,8 @@ private fun ChatScreen(
         } catch (e: Exception) {
             frames.forEach { it.recycle() }
             failedPendingIds[pendingId] = true
+            // 502 可能发生在服务端已落库之后；对账一次，避免成功消息还卡在 pending。
+            runCatching { reconcilePending() }
             status = "发送失败：${e.message}，可在下方重试"
             streamingText = ""
         } finally {
@@ -828,6 +854,7 @@ private fun ChatScreen(
                 syncEvents()
                 backfillOlderHistory()
             }
+            reconcilePending()
         } catch (e: Exception) {
             android.util.Log.w("ChatSync", "initial sync failed: ${e.message}", e)
             status = "同步失败：${e.message}"

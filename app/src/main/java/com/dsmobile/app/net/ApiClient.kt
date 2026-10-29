@@ -237,6 +237,40 @@ class ApiClient(
             }
         }
 
+    /** 按 client_message_id 对账：服务端已落库的 pending 不再重复显示/发送。 */
+    suspend fun clientMessages(ids: List<String>): List<MessageEntity> = withContext(Dispatchers.IO) {
+        if (ids.isEmpty()) return@withContext emptyList()
+        val encoded = java.net.URLEncoder.encode(ids.distinct().take(20).joinToString(","), "UTF-8")
+        val request = Request.Builder()
+            .url("$baseUrl/api/app/client-messages?ids=$encoded")
+            .header("Authorization", "Bearer ${requireToken()}")
+            .get()
+            .build()
+        execute(request).use { response ->
+            val text = response.body?.string().orEmpty()
+            if (!response.isSuccessful) throw ApiException(errorText(response.code, text))
+            val rows = JSONObject(text).optJSONArray("messages") ?: JSONArray()
+            buildList {
+                for (i in 0 until rows.length()) {
+                    val m = rows.getJSONObject(i)
+                    add(
+                        MessageEntity(
+                            id = m.optLong("id"),
+                            role = m.optString("role"),
+                            content = m.optString("content"),
+                            channel = m.optString("channel"),
+                            createdAt = m.optString("created_at"),
+                            turnId = if (m.isNull("turn_id")) null else m.optLong("turn_id"),
+                            proactiveKind = if (m.isNull("proactive_kind")) null else m.optString("proactive_kind"),
+                            clientMessageId = m.optString("client_message_id")
+                                .takeIf { it.isNotBlank() },
+                        )
+                    )
+                }
+            }
+        }
+    }
+
     suspend fun chat(text: String, clientMessageId: String? = null): String = withContext(Dispatchers.IO) {
         val messages = JSONArray().put(JSONObject().put("role", "user").put("content", text))
         val body = JSONObject()
