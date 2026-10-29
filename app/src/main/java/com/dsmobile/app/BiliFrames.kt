@@ -81,6 +81,8 @@ object BiliFrames {
         timestamps: List<Double> = emptyList(),
         /** videoshot 的 image[]：长视频被切成多张雪碧图，只取第一张会丢掉后半段。 */
         spriteUrls: List<String> = emptyList(),
+        /** debug 包把成品宫格存到 cache 目录，方便 adb 拉出来核对。 */
+        dumpDebug: Boolean = false,
     ): List<Bitmap> = withContext(Dispatchers.IO) {
         val urls = spriteUrls.filter { it.isNotBlank() }.ifEmpty { listOf(storyboardUrl) }
         if (urls.all { it.isBlank() } || cols <= 0 || rows <= 0) return@withContext emptyList()
@@ -171,6 +173,17 @@ object BiliFrames {
                     canvas.drawText(formatClock(t), left + 6f, top + 40f, timePaint)
                 }
                 candidates.add(picked)
+            }
+            // debug 包把成品宫格落一份，方便 adb 拉出来核对（release 不写）
+            if (dumpDebug) {
+                runCatching {
+                    cacheDir?.let { dir ->
+                        File(dir, "bili-grid-debug.jpg").outputStream().use { out ->
+                            grid.compress(Bitmap.CompressFormat.JPEG, 85, out)
+                        }
+                        Log.i("BiliFrames", "grid debug saved valid=$valid")
+                    }
+                }
             }
             val output = mutableListOf(grid)
             // 关键帧不取固定位置，选亮度最高/信息最多的两张，避开纯黑转场。

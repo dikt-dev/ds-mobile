@@ -518,6 +518,8 @@ private fun ChatScreen(
                     cacheDir = context.cacheDir,
                     timestamps = bili.storyboardIndex,
                     spriteUrls = bili.storyboardUrls,
+                    dumpDebug = (context.applicationInfo.flags and
+                        android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0,
                 )
             }.getOrDefault(emptyList())
         } else {
