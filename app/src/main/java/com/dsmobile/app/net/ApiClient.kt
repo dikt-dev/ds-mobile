@@ -48,6 +48,8 @@ data class BiliPreview(
     val storyboardRows: Int = 0,
     /** videoshot 返回的每帧时间点（秒），比 cols×rows 可靠：末行常有空白格 */
     val storyboardIndex: List<Double> = emptyList(),
+    /** videoshot 的 image[]：长视频会被切成多张雪碧图 */
+    val storyboardUrls: List<String> = emptyList(),
     val cover: String = "",
 )
 
@@ -554,6 +556,7 @@ class ApiClient(
                 var storyboardCols = 0
                 var storyboardRows = 0
                 var storyboardIndex: List<Double> = emptyList()
+                var storyboardUrls: List<String> = emptyList()
                 if (cid > 0) {
                     runCatching {
                         val u = "https://api.bilibili.com/x/player/playurl" +
@@ -578,8 +581,13 @@ class ApiClient(
                             .get().build()
                         execute(shotReq).use { sr ->
                             val data = JSONObject(sr.body?.string().orEmpty()).optJSONObject("data")
-                            storyboardUrl = data?.optJSONArray("image")?.optString(0).orEmpty()
-                                .let { if (it.startsWith("//")) "https:$it" else it }
+                            storyboardUrls = data?.optJSONArray("image")?.let { arr ->
+                                (0 until arr.length()).mapNotNull { i ->
+                                    arr.optString(i).takeIf { it.isNotBlank() }
+                                        ?.let { if (it.startsWith("//")) "https:$it" else it }
+                                }
+                            } ?: emptyList()
+                            storyboardUrl = storyboardUrls.firstOrNull().orEmpty()
                             storyboardCols = data?.optInt("img_x_len") ?: 0
                             storyboardRows = data?.optInt("img_y_len") ?: 0
                             storyboardIndex = data?.optJSONArray("index")?.let { arr ->
@@ -683,6 +691,7 @@ class ApiClient(
                     storyboardCols = storyboardCols,
                     storyboardRows = storyboardRows,
                     storyboardIndex = storyboardIndex,
+                    storyboardUrls = storyboardUrls,
                     cover = data.optString("pic").let {
                         if (it.startsWith("//")) "https:$it" else it.replaceFirst("http://", "https://")
                     },

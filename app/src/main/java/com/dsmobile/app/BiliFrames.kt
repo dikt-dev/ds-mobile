@@ -70,7 +70,7 @@ object BiliFrames {
         }
     }
 
-    /** 按旧方案：3×3 抽帧网格 + 2 张关键帧，一起发给 AI。 */
+    /** 多张雪碧图 + 时间点 → 3×3 编号宫格 + 2 张高亮关键帧。 */
     suspend fun loadAiFrames(
         storyboardUrl: String,
         cols: Int,
@@ -79,18 +79,47 @@ object BiliFrames {
         cacheDir: File?,
         /** videoshot 的 index[]：每帧秒数。给了就按它裁掉末行空白格并标注时间。 */
         timestamps: List<Double> = emptyList(),
+        /** videoshot 的 image[]：长视频被切成多张雪碧图，只取第一张会丢掉后半段。 */
+        spriteUrls: List<String> = emptyList(),
     ): List<Bitmap> = withContext(Dispatchers.IO) {
-        if (storyboardUrl.isBlank() || cols <= 0 || rows <= 0) return@withContext emptyList()
-        val bytes = downloadBytes(storyboardUrl, cookie, cacheDir) ?: return@withContext emptyList()
-        val decoder = BitmapRegionDecoder.newInstance(ByteArrayInputStream(bytes), false)
-            ?: return@withContext emptyList()
+        val urls = spriteUrls.filter { it.isNotBlank() }.ifEmpty { listOf(storyboardUrl) }
+        if (urls.all { it.isBlank() } || cols <= 0 || rows <= 0) return@withContext emptyList()
+        val perSheet = cols * rows
+        val decoders = HashMap<Int, BitmapRegionDecoder>()
+        val cellSizes = HashMap<Int, IntArray>()
+
+        fun cellDecoder(sheet: Int): BitmapRegionDecoder? {
+            decoders[sheet]?.let { return it }
+            val url = urls.getOrNull(sheet) ?: return null
+            val bytes = downloadBytes(url, cookie, cacheDir) ?: return null
+            val dec = BitmapRegionDecoder.newInstance(ByteArrayInputStream(bytes), false) ?: return null
+            decoders[sheet] = dec
+            cellSizes[sheet] = intArrayOf(dec.width / cols, dec.height / rows)
+            return dec
+        }
+
+        fun decodeAt(index: Int): Bitmap? {
+            val sheet = index / perSheet
+            val tile = index % perSheet
+            val dec = cellDecoder(sheet) ?: return null
+            val size = cellSizes[sheet] ?: return null
+            val cw = size[0]
+            val ch = size[1]
+            if (cw <= 0 || ch <= 0) return null
+            val col = tile % cols
+            val row = tile / cols
+            return runCatching {
+                dec.decodeRegion(
+                    Rect(col * cw, row * ch, (col + 1) * cw, (row + 1) * ch),
+                    BitmapFactory.Options(),
+                )
+            }.getOrNull()
+        }
+
         try {
-            val cellW = decoder.width / cols
-            val cellH = decoder.height / rows
-            if (cellW <= 0 || cellH <= 0) return@withContext emptyList()
-            // index[] 只列真实帧，末行常用空白格补齐；按它裁剪避免选出全黑格
-            val total = cols * rows
-            val valid = if (timestamps.isNotEmpty()) min(timestamps.size, total) else total
+            // index[] 只列真实帧；末行可能用空白格补齐，按它裁掉
+            val totalCells = perSheet * urls.size
+            val valid = if (timestamps.isNotEmpty()) min(timestamps.size, totalCells) else totalCells
             if (valid <= 0) return@withContext emptyList()
             val picks = min(9, valid)
             val positions = (0 until picks).map {
@@ -112,26 +141,36 @@ object BiliFrames {
                 setShadowLayer(3f, 1f, 1f, Color.BLACK)
             }
             val candidates = mutableListOf<Bitmap>()
-            positions.forEachIndexed { i, tile ->
-                val col = tile % cols
-                val row = tile / cols
-                val frame = decoder.decodeRegion(
-                    Rect(col * cellW, row * cellH, (col + 1) * cellW, (row + 1) * cellH),
-                    BitmapFactory.Options(),
-                ) ?: return@forEachIndexed
+            positions.forEachIndexed { i, base ->
+                // 纯黑转场帧对模型没用；就近找一个亮一点的帧替代（最多挪 3 格）
+                var frame: Bitmap? = null
+                var usedIndex = base
+                val offsets = intArrayOf(0, 1, -1, 2, -2, 3, -3)
+                for ((k, off) in offsets.withIndex()) {
+                    val cand = base + off
+                    if (cand < 0 || cand >= valid) continue
+                    val bmp = decodeAt(cand) ?: continue
+                    val last = k == offsets.size - 1
+                    frame = bmp
+                    usedIndex = cand
+                    if (meanBrightness(bmp) >= 15 || last) break
+                    bmp.recycle()
+                    frame = null
+                }
+                val picked = frame ?: return@forEachIndexed
                 val left = (i % 3) * 240f
                 val top = (i / 3) * 135f
                 canvas.drawBitmap(
-                    frame,
+                    picked,
                     null,
                     android.graphics.RectF(left, top, left + 240f, top + 135f),
                     paint,
                 )
                 canvas.drawText("${i + 1}", left + 6f, top + 22f, labelPaint)
-                timestamps.getOrNull(tile)?.let { t ->
+                timestamps.getOrNull(usedIndex)?.let { t ->
                     canvas.drawText(formatClock(t), left + 6f, top + 40f, timePaint)
                 }
-                candidates.add(frame)
+                candidates.add(picked)
             }
             val output = mutableListOf(grid)
             // 关键帧不取固定位置，选亮度最高/信息最多的两张，避开纯黑转场。
@@ -146,8 +185,28 @@ object BiliFrames {
         } catch (_: Exception) {
             emptyList()
         } finally {
-            decoder.recycle()
+            decoders.values.forEach { runCatching { it.recycle() } }
         }
+    }
+
+    /** 采样平均亮度（0-255），用来跳过纯黑转场帧。 */
+    private fun meanBrightness(bitmap: Bitmap): Int {
+        val stepX = (bitmap.width / 24).coerceAtLeast(1)
+        val stepY = (bitmap.height / 14).coerceAtLeast(1)
+        var sum = 0L
+        var n = 0L
+        var y = 0
+        while (y < bitmap.height) {
+            var x = 0
+            while (x < bitmap.width) {
+                val c = bitmap.getPixel(x, y)
+                sum += ((c shr 16 and 0xFF) + (c shr 8 and 0xFF) + (c and 0xFF)) / 3
+                n++
+                x += stepX
+            }
+            y += stepY
+        }
+        return if (n == 0L) 0 else (sum / n).toInt()
     }
 
     private fun brightnessScore(bitmap: Bitmap): Long {

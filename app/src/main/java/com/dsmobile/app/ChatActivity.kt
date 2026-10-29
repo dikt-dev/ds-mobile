@@ -517,6 +517,7 @@ private fun ChatScreen(
                     cookie = biliCookie,
                     cacheDir = context.cacheDir,
                     timestamps = bili.storyboardIndex,
+                    spriteUrls = bili.storyboardUrls,
                 )
             }.getOrDefault(emptyList())
         } else {
