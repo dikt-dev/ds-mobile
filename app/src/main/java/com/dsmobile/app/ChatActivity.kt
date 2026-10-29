@@ -2413,10 +2413,25 @@ private fun biliMetaText(preview: BiliPreview, url: String): String = buildStrin
     }
     appendLine()
     appendLine("## 字幕（完整，共 ${preview.subtitleCount} 句）")
-    appendLine(preview.subtitle.ifBlank { "（未获取到字幕）" })
+    appendLine(
+        preview.subtitle.ifBlank {
+            if (preview.subtitleCount == 0) {
+                "（该视频没有字幕。只根据画面描述，不要编造台词、对话或旁白。）"
+            } else {
+                "（未获取到字幕）"
+            }
+        },
+    )
     appendLine()
     appendLine("## 抽帧")
-    appendLine("视频抽帧会作为图片附件一并提供，供你理解画面。")
+    appendLine(
+        "附件是一张宫格图：3×3 共 9 格，按左上→右下编号 1–9；" +
+            "每格左上角是格号，下面一行是该格对应的视频时间点。",
+    )
+    appendLine(
+        "格号和时间是给你的定位标记，不是画面内容；要引用时写「第 5 格（约 16:44）」，" +
+            "不要把它当成一张普通照片、也不要说“同一张图”。",
+    )
     append("[/BILI_META]")
 }
 

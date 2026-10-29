@@ -207,16 +207,10 @@ object BiliFrames {
                     }
                 }
             }
-            val output = mutableListOf(grid)
-            // 关键帧不取固定位置，选亮度最高/信息最多的两张，避开纯黑转场。
-            val keyFrames = candidates
-                .map { it to brightnessScore(it) }
-                .sortedByDescending { it.second }
-                .take(2)
-                .map { it.first }
-            output.addAll(keyFrames)
-            candidates.forEach { if (it !in keyFrames) it.recycle() }
-            output
+            // 关键帧就是宫格里的同一张位图、同样分辨率，单独再发一遍只会让模型
+            // 把"同一张图"当成多张照片，还白花一份图片 token（每张 384）。
+            candidates.forEach { runCatching { it.recycle() } }
+            listOf(grid)
         } catch (_: Exception) {
             emptyList()
         } finally {
