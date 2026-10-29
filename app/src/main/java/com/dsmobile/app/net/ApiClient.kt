@@ -690,8 +690,14 @@ class ApiClient(
                                     if (t.isNotEmpty()) points.add(t)
                                     val parts = item.optJSONArray("part_outline")
                                     for (j in 0 until (parts?.length() ?: 0)) {
-                                        val p = parts!!.optString(j).trim()
-                                        if (p.isNotEmpty()) points.add("  · $p")
+                                        // B 站这里有时返回 {"timestamp":3,"content":"…"} 对象，
+                                        // 直接 optString 会把整段 JSON 塞进提示词。
+                                        val rawPart = parts!!.opt(j)
+                                        val p = when (rawPart) {
+                                            is JSONObject -> rawPart.optString("content").trim()
+                                            else -> rawPart?.toString()?.trim().orEmpty()
+                                        }
+                                        if (p.isNotEmpty() && !p.startsWith("{")) points.add("  · $p")
                                     }
                                     if (points.size >= 12) break
                                 }
