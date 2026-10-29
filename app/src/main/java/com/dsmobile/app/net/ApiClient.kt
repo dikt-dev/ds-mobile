@@ -2,6 +2,7 @@ package com.dsmobile.app.net
 
 import android.content.Context
 import android.net.Uri
+import android.util.Log
 import android.provider.OpenableColumns
 import com.dsmobile.app.data.MessageEntity
 import kotlinx.coroutines.Dispatchers
@@ -520,6 +521,12 @@ class ApiClient(
                 if (biliSessdata.isNotBlank()) "SESSDATA=$biliSessdata" else ""
             }
             if (cookie.isNotBlank()) headers["Cookie"] = cookie
+            Log.i(
+                "BiliPreview",
+                "direct preview cookie=" + cookie.isNotBlank() +
+                    " sess=" + biliSessdata.isNotBlank() +
+                    " fullLen=" + cookie.length,
+            )
             var finalUrl = url
             if (url.contains("b23.tv")) {
                 val redirect = Request.Builder()
@@ -653,9 +660,27 @@ class ApiClient(
                                 .get()
                                 .build()
                             execute(sumReq).use { sr ->
-                                val model = JSONObject(sr.body?.string().orEmpty())
-                                    .optJSONObject("data")
-                                    ?.optJSONObject("model_result")
+                                val raw = sr.body?.string().orEmpty()
+                                val root = runCatching { JSONObject(raw) }.getOrNull()
+                                // 只记 code/message，不记 cookie、不记正文
+                                Log.i(
+                                    "BiliPreview",
+                                    "conclusion http=" + sr.code +
+                                        " code=" + (root?.optInt("code") ?: -999) +
+                                        " msg=" + root?.optString("message").orEmpty(),
+                                )
+                                val dataObj = root?.optJSONObject("data")
+                                Log.i(
+                                    "BiliPreview",
+                                    "conclusion data=" + (dataObj != null) +
+                                        " result_type=" + (dataObj?.optInt("result_type") ?: -1) +
+                                        " hasModel=" + (dataObj?.optJSONObject("model_result") != null) +
+                                        " sumLen=" + (dataObj?.optJSONObject("model_result")
+                                            ?.optString("summary")?.length ?: -1) +
+                                        " outlineLen=" + (dataObj?.optJSONObject("model_result")
+                                            ?.optJSONArray("outline")?.length() ?: -1),
+                                )
+                                val model = dataObj?.optJSONObject("model_result")
                                 summary = model?.optString("summary").orEmpty().trim()
                                 val arr = model?.optJSONArray("outline")
                                 val points = mutableListOf<String>()
