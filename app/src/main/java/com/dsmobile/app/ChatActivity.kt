@@ -1080,6 +1080,13 @@ private fun ChatScreen(
                             }
                         }
                     },
+                    onDismiss = {
+                        scope.launch {
+                            dao.deletePending(message)
+                            failedPendingIds.remove(message.id)
+                            status = ""
+                        }
+                    },
                 )
             }
             itemsIndexed(
@@ -2531,6 +2538,7 @@ private fun PendingBubble(
     busy: Boolean,
     failed: Boolean,
     onRetry: () -> Unit,
+    onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
     val localPreview = remember(message.localUri) {
@@ -2612,8 +2620,11 @@ private fun PendingBubble(
                             color = Color(0xFF26232E),
                         )
                     }
-                    if (failed && message.attachmentKind == null) {
-                        TextButton(onClick = onRetry, enabled = !busy) { Text("重试") }
+                    if (failed) {
+                        Row {
+                            TextButton(onClick = onRetry, enabled = !busy) { Text("重试") }
+                            TextButton(onClick = onDismiss, enabled = !busy) { Text("删除") }
+                        }
                     }
                 }
             }
