@@ -149,19 +149,39 @@ object BiliFrames {
                 }
                 chosen.sorted()
             }
-            val grid = Bitmap.createBitmap(720, 405, Bitmap.Config.ARGB_8888)
+            // 画布比例跟着源视频走：3 列 × 3 行时，画布宽高比 == 单格宽高比。
+            // 竖屏视频以前被硬拉进 720×405，画面和人脸都是变形的。
+            cellDecoder(0)?.let { }
+            val firstCell = cellSizes[0]
+            if (firstCell == null || firstCell[0] <= 0 || firstCell[1] <= 0) return@withContext emptyList()
+            val cellAspect = firstCell[0].toFloat() / firstCell[1].toFloat()
+            val maxSide = 720f
+            val outW: Int
+            val outH: Int
+            if (cellAspect >= 1f) {
+                outW = maxSide.toInt()
+                outH = (maxSide / cellAspect).toInt().coerceAtLeast(1)
+            } else {
+                outH = maxSide.toInt()
+                outW = (maxSide * cellAspect).toInt().coerceAtLeast(1)
+            }
+            val cellWOut = outW / 3f
+            val cellHOut = outH / 3f
+            val scale = outW / 720f
+
+            val grid = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888)
             val canvas = Canvas(grid)
             canvas.drawColor(Color.BLACK)
             val paint = Paint(Paint.ANTI_ALIAS_FLAG)
             val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = Color.WHITE
-                textSize = 18f
+                textSize = 18f * scale
                 setShadowLayer(3f, 1f, 1f, Color.BLACK)
             }
             // 时间戳用黄色小字，和编号区分开，避免模型把时间当成编号
             val timePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = Color.parseColor("#FFEB3B")
-                textSize = 14f
+                textSize = 14f * scale
                 setShadowLayer(3f, 1f, 1f, Color.BLACK)
             }
             val candidates = mutableListOf<Bitmap>()
@@ -182,17 +202,22 @@ object BiliFrames {
                     frame = null
                 }
                 val picked = frame ?: return@forEachIndexed
-                val left = (i % 3) * 240f
-                val top = (i / 3) * 135f
+                val left = (i % 3) * cellWOut
+                val top = (i / 3) * cellHOut
                 canvas.drawBitmap(
                     picked,
                     null,
-                    android.graphics.RectF(left, top, left + 240f, top + 135f),
+                    android.graphics.RectF(left, top, left + cellWOut, top + cellHOut),
                     paint,
                 )
-                canvas.drawText("${i + 1}", left + 6f, top + 22f, labelPaint)
+                canvas.drawText("${i + 1}", left + 6f * scale, top + 22f * scale, labelPaint)
                 timestamps.getOrNull(usedIndex)?.let { t ->
-                    canvas.drawText(formatClock(t), left + 6f, top + 40f, timePaint)
+                    canvas.drawText(
+                        formatClock(t),
+                        left + 6f * scale,
+                        top + 40f * scale,
+                        timePaint,
+                    )
                 }
                 candidates.add(picked)
             }
