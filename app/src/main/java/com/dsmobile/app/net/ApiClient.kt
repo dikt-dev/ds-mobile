@@ -837,7 +837,8 @@ class ApiClient(
     fun mediaHeaders(): Map<String, String> =
         mapOf("Authorization" to "Bearer ${requireToken()}")
 
-    private fun biliKey(url: String): String =
+    /** 缓存键带版本：字段结构变了就自然失效，不需要清用户数据。 */
+    private fun biliKey(url: String): String = "v2:" +
         "bili:${biliSessdata.hashCode()}:$url"
 
     private fun cachedBiliPreview(url: String): BiliPreview? {
@@ -863,6 +864,12 @@ class ApiClient(
                 storyboardUrl = o.optString("storyboard_url"),
                 storyboardCols = o.optInt("storyboard_cols"),
                 storyboardRows = o.optInt("storyboard_rows"),
+                storyboardIndex = o.optJSONArray("storyboard_index")?.let { arr ->
+                    (0 until arr.length()).map { arr.optDouble(it, 0.0) }
+                } ?: emptyList(),
+                storyboardUrls = o.optJSONArray("storyboard_urls")?.let { arr ->
+                    (0 until arr.length()).mapNotNull { arr.optString(it).takeIf { s -> s.isNotBlank() } }
+                } ?: emptyList(),
                 cover = o.optString("cover"),
             )
         }.getOrNull()
@@ -885,6 +892,8 @@ class ApiClient(
             .put("storyboard_url", p.storyboardUrl)
             .put("storyboard_cols", p.storyboardCols)
             .put("storyboard_rows", p.storyboardRows)
+            .put("storyboard_index", JSONArray().apply { p.storyboardIndex.forEach { put(it) } })
+            .put("storyboard_urls", JSONArray().apply { p.storyboardUrls.forEach { put(it) } })
             .put("cover", p.cover)
         diskCache?.put(biliKey(url), o.toString().toByteArray())
     }
