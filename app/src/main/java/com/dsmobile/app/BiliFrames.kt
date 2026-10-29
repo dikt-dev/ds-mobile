@@ -124,8 +124,30 @@ object BiliFrames {
             val valid = if (timestamps.isNotEmpty()) min(timestamps.size, totalCells) else totalCells
             if (valid <= 0) return@withContext emptyList()
             val picks = min(9, valid)
-            val positions = (0 until picks).map {
+            val even = (0 until picks).map {
                 if (picks == 1) 0 else it * (valid - 1) / (picks - 1)
+            }
+            // 静止画面会让连续两帧时间点相同 → 两格长得一样，白占位置
+            val positions = if (timestamps.isEmpty()) {
+                even
+            } else {
+                val chosen = mutableListOf<Int>()
+                val seenSeconds = HashSet<Int>()
+                for (p in even) {
+                    val sec = timestamps.getOrNull(p)?.toInt()
+                    if (sec != null && !seenSeconds.add(sec)) continue
+                    chosen.add(p)
+                }
+                if (chosen.size < picks) {
+                    for (p in 0 until valid) {
+                        if (chosen.size >= picks) break
+                        if (p in chosen) continue
+                        val sec = timestamps.getOrNull(p)?.toInt() ?: continue
+                        if (!seenSeconds.add(sec)) continue
+                        chosen.add(p)
+                    }
+                }
+                chosen.sorted()
             }
             val grid = Bitmap.createBitmap(720, 405, Bitmap.Config.ARGB_8888)
             val canvas = Canvas(grid)
