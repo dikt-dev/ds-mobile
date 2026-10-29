@@ -18,6 +18,7 @@ import java.io.ByteArrayInputStream
 import java.io.File
 import java.util.concurrent.TimeUnit
 import kotlin.math.max
+import kotlin.math.min
 
 /** 手机端 B 站视频抽帧：下载 durl MP4，用 MediaMetadataRetriever 拼 3x3 网格。 */
 object BiliFrames {
@@ -56,6 +57,19 @@ object BiliFrames {
         }.getOrNull()
     }
 
+    /** 把时间点格式化成 m:ss，画在格子里，让模型能把"第 5 格"对回时间轴。 */
+    private fun formatClock(seconds: Double): String {
+        val total = seconds.toInt().coerceAtLeast(0)
+        val m = total / 60
+        val s = total % 60
+        return if (m >= 60) {
+            val h = m / 60
+            "%d:%02d:%02d".format(h, m % 60, s)
+        } else {
+            "%d:%02d".format(m, s)
+        }
+    }
+
     /** 按旧方案：3×3 抽帧网格 + 2 张关键帧，一起发给 AI。 */
     suspend fun loadAiFrames(
         storyboardUrl: String,
@@ -63,6 +77,8 @@ object BiliFrames {
         rows: Int,
         cookie: String,
         cacheDir: File?,
+        /** videoshot 的 index[]：每帧秒数。给了就按它裁掉末行空白格并标注时间。 */
+        timestamps: List<Double> = emptyList(),
     ): List<Bitmap> = withContext(Dispatchers.IO) {
         if (storyboardUrl.isBlank() || cols <= 0 || rows <= 0) return@withContext emptyList()
         val bytes = downloadBytes(storyboardUrl, cookie, cacheDir) ?: return@withContext emptyList()
@@ -72,8 +88,14 @@ object BiliFrames {
             val cellW = decoder.width / cols
             val cellH = decoder.height / rows
             if (cellW <= 0 || cellH <= 0) return@withContext emptyList()
+            // index[] 只列真实帧，末行常用空白格补齐；按它裁剪避免选出全黑格
             val total = cols * rows
-            val positions = (0 until 9).map { it * (total - 1) / 8 }
+            val valid = if (timestamps.isNotEmpty()) min(timestamps.size, total) else total
+            if (valid <= 0) return@withContext emptyList()
+            val picks = min(9, valid)
+            val positions = (0 until picks).map {
+                if (picks == 1) 0 else it * (valid - 1) / (picks - 1)
+            }
             val grid = Bitmap.createBitmap(720, 405, Bitmap.Config.ARGB_8888)
             val canvas = Canvas(grid)
             canvas.drawColor(Color.BLACK)
@@ -81,6 +103,12 @@ object BiliFrames {
             val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = Color.WHITE
                 textSize = 18f
+                setShadowLayer(3f, 1f, 1f, Color.BLACK)
+            }
+            // 时间戳用黄色小字，和编号区分开，避免模型把时间当成编号
+            val timePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.parseColor("#FFEB3B")
+                textSize = 14f
                 setShadowLayer(3f, 1f, 1f, Color.BLACK)
             }
             val candidates = mutableListOf<Bitmap>()
@@ -100,6 +128,9 @@ object BiliFrames {
                     paint,
                 )
                 canvas.drawText("${i + 1}", left + 6f, top + 22f, labelPaint)
+                timestamps.getOrNull(tile)?.let { t ->
+                    canvas.drawText(formatClock(t), left + 6f, top + 40f, timePaint)
+                }
                 candidates.add(frame)
             }
             val output = mutableListOf(grid)

@@ -46,6 +46,8 @@ data class BiliPreview(
     val storyboardUrl: String = "",
     val storyboardCols: Int = 0,
     val storyboardRows: Int = 0,
+    /** videoshot 返回的每帧时间点（秒），比 cols×rows 可靠：末行常有空白格 */
+    val storyboardIndex: List<Double> = emptyList(),
     val cover: String = "",
 )
 
@@ -551,6 +553,7 @@ class ApiClient(
                 var storyboardUrl = ""
                 var storyboardCols = 0
                 var storyboardRows = 0
+                var storyboardIndex: List<Double> = emptyList()
                 if (cid > 0) {
                     runCatching {
                         val u = "https://api.bilibili.com/x/player/playurl" +
@@ -579,6 +582,9 @@ class ApiClient(
                                 .let { if (it.startsWith("//")) "https:$it" else it }
                             storyboardCols = data?.optInt("img_x_len") ?: 0
                             storyboardRows = data?.optInt("img_y_len") ?: 0
+                            storyboardIndex = data?.optJSONArray("index")?.let { arr ->
+                                (0 until arr.length()).map { arr.optDouble(it, 0.0) }
+                            } ?: emptyList()
                         }
                     }
                 }
@@ -676,6 +682,7 @@ class ApiClient(
                     storyboardUrl = storyboardUrl,
                     storyboardCols = storyboardCols,
                     storyboardRows = storyboardRows,
+                    storyboardIndex = storyboardIndex,
                     cover = data.optString("pic").let {
                         if (it.startsWith("//")) "https:$it" else it.replaceFirst("http://", "https://")
                     },
