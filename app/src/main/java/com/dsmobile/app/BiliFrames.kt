@@ -24,6 +24,7 @@ import kotlin.math.min
 object BiliFrames {
     private const val MAX_BYTES = 30L * 1024 * 1024
     private const val UA = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/125.0 Mobile Safari/537.36"
+    private const val DESKTOP_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
     private val client = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(120, TimeUnit.SECONDS)
@@ -302,23 +303,45 @@ object BiliFrames {
         if (!file.exists() || file.length() < 1_000_000L) {
             pruneMp4Cache(cacheDir)
             file.parentFile?.mkdirs()
-            val request = Request.Builder()
-                .url(playUrl)
-                .header("User-Agent", UA)
-                .header("Referer", "https://www.bilibili.com/")
-                .apply { if (cookie.isNotBlank()) header("Cookie", cookie) }
-                .get()
-                .build()
-            client.newCall(request).execute().use { resp ->
-                if (!resp.isSuccessful) {
-                    Log.w("BiliFrames", "mp4 download HTTP ${resp.code}")
-                    return null
+            // B站视频 CDN 对 UA / Referer / Range 的组合挑得很细，403 时换一套头再试。
+            val variants = listOf(
+                Triple(UA, "https://www.bilibili.com/", false),
+                Triple(DESKTOP_UA, "https://www.bilibili.com/", false),
+                Triple(DESKTOP_UA, "https://www.bilibili.com/", true),
+            )
+            var ok = false
+            for ((idx, v) in variants.withIndex()) {
+                val (agent, referer, withRange) = v
+                val request = Request.Builder()
+                    .url(playUrl)
+                    .header("User-Agent", agent)
+                    .header("Referer", referer)
+                    .header("Origin", "https://www.bilibili.com")
+                    .apply { if (withRange) header("Range", "bytes=0-") }
+                    .apply { if (cookie.isNotBlank()) header("Cookie", cookie) }
+                    .get()
+                    .build()
+                runCatching {
+                    client.newCall(request).execute().use { resp ->
+                        if (!resp.isSuccessful) {
+                            Log.w("BiliFrames", "mp4 variant=$idx HTTP ${resp.code}")
+                            return@use
+                        }
+                        val body = resp.body ?: return@use
+                        body.byteStream().use { input ->
+                            file.outputStream().use { out -> input.copyTo(out, 256 * 1024) }
+                        }
+                        if (file.length() > 1_000_000L) {
+                            ok = true
+                            Log.i(
+                                "BiliFrames",
+                                "mp4 downloaded variant=$idx ${file.length() / 1024 / 1024}MB",
+                            )
+                        }
+                    }
                 }
-                val body = resp.body ?: return null
-                body.byteStream().use { input ->
-                    file.outputStream().use { out -> input.copyTo(out, 256 * 1024) }
-                }
-                Log.i("BiliFrames", "mp4 downloaded ${file.length() / 1024 / 1024}MB")
+                if (ok) break
+                file.delete()
             }
         }
         if (!file.exists() || file.length() < 1_000_000L) return null
