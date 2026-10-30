@@ -81,9 +81,18 @@ object BiliFrames {
         timestamps: List<Double> = emptyList(),
         /** videoshot 的 image[]：长视频被切成多张雪碧图，只取第一张会丢掉后半段。 */
         spriteUrls: List<String> = emptyList(),
+        /** MP4 直链：给了就用原始帧，比雪碧图（单格 160×90）清楚一个量级。 */
+        playUrl: String = "",
         /** debug 包把成品宫格存到 cache 目录，方便 adb 拉出来核对。 */
         dumpDebug: Boolean = false,
     ): List<Bitmap> = withContext(Dispatchers.IO) {
+        // 原始帧优先：雪碧图单格往往只有 160×90，放大到宫格里就是糊的
+        if (playUrl.isNotBlank()) {
+            val mp4 = runCatching {
+                loadMp4Grids(playUrl, cookie, cacheDir, dumpDebug)
+            }.getOrNull()
+            if (!mp4.isNullOrEmpty()) return@withContext mp4
+        }
         val urls = spriteUrls.filter { it.isNotBlank() }.ifEmpty { listOf(storyboardUrl) }
         if (urls.all { it.isBlank() } || cols <= 0 || rows <= 0) return@withContext emptyList()
         val perSheet = cols * rows
@@ -275,6 +284,147 @@ object BiliFrames {
         }
     }
 
+    /**
+     * 从 durl MP4 直接抽帧。用户明确要求「准确性优先」，所以不再受 30MB 限制：
+     * 360p 的 4 分钟视频约 40MB，换来的是一帧 640×360 而不是 160×90。
+     * 下载过的文件留在 cache，同一条视频重看不重复下载。
+     */
+    private fun loadMp4Grids(
+        playUrl: String,
+        cookie: String,
+        cacheDir: File?,
+        dumpDebug: Boolean,
+    ): List<Bitmap>? {
+        val file = mp4CacheFile(playUrl, cacheDir) ?: return null
+        if (!file.exists() || file.length() < 1_000_000L) {
+            file.parentFile?.mkdirs()
+            val request = Request.Builder()
+                .url(playUrl)
+                .header("User-Agent", UA)
+                .header("Referer", "https://www.bilibili.com/")
+                .apply { if (cookie.isNotBlank()) header("Cookie", cookie) }
+                .get()
+                .build()
+            client.newCall(request).execute().use { resp ->
+                if (!resp.isSuccessful) return null
+                val body = resp.body ?: return null
+                body.byteStream().use { input ->
+                    file.outputStream().use { out -> input.copyTo(out, 256 * 1024) }
+                }
+            }
+        }
+        if (!file.exists() || file.length() < 1_000_000L) return null
+        val retriever = MediaMetadataRetriever()
+        try {
+            retriever.setDataSource(file.absolutePath)
+            val durationMs = retriever
+                .extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                ?.toLongOrNull() ?: return null
+            if (durationMs < 1000) return null
+            val durationSec = durationMs / 1000.0
+            // 先探一帧拿宽高比：竖屏 3×2，横屏 3×3
+            val probe = retriever.getFrameAtTime(
+                durationMs * 500L,
+                MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+            ) ?: return null
+            if (probe.width <= 0 || probe.height <= 0) return null
+            val cellAspect = probe.width.toFloat() / probe.height.toFloat()
+            probe.recycle()
+            val outCols = 3
+            val outRows = if (cellAspect < 0.8f) 2 else 3
+            val cellsPerGrid = outCols * outRows
+            // 时长越长给越多张：≤1.5min 1 张 … >7.5min 5 张（4:40 → 3 张 27 帧）
+            val gridCount = when {
+                durationSec <= 90.0 -> 1
+                durationSec <= 180.0 -> 2
+                durationSec <= 300.0 -> 3
+                durationSec <= 450.0 -> 4
+                else -> 5
+            }
+            val total = cellsPerGrid * gridCount
+            val maxSide = 1024f
+            val canvasAspect = (outCols.toFloat() / outRows) * cellAspect
+            val outW = if (canvasAspect >= 1f) maxSide.toInt()
+            else (maxSide * canvasAspect).toInt().coerceAtLeast(1)
+            val outH = if (canvasAspect >= 1f)
+            (maxSide / canvasAspect).toInt().coerceAtLeast(1) else maxSide.toInt()
+            val cellWOut = outW / outCols.toFloat()
+            val cellHOut = outH / outRows.toFloat()
+            val scale = maxSide / 720f
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+            val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.WHITE
+                textSize = 18f * scale
+                setShadowLayer(3f, 1f, 1f, Color.BLACK)
+            }
+            val timePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.parseColor("#FFEB3B")
+                textSize = 14f * scale
+                setShadowLayer(3f, 1f, 1f, Color.BLACK)
+            }
+            val grids = ArrayList<Bitmap>(gridCount)
+            for (g in 0 until gridCount) {
+                val grid = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888)
+                val canvas = Canvas(grid)
+                canvas.drawColor(Color.BLACK)
+                for (i in 0 until cellsPerGrid) {
+                    val idx = g * cellsPerGrid + i
+                    val tSec = (idx + 0.5) / total * durationSec
+                    val frame = retriever.getFrameAtTime(
+                        (tSec * 1_000_000).toLong(),
+                        MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+                    ) ?: continue
+                    val left = (i % outCols) * cellWOut
+                    val top = (i / outCols) * cellHOut
+                    // 等比铺满 + 居中裁剪，避免拉伸变形
+                    val fit = max(cellWOut / frame.width, cellHOut / frame.height)
+                    val dw = frame.width * fit
+                    val dh = frame.height * fit
+                    val dx = left + (cellWOut - dw) / 2f
+                    val dy = top + (cellHOut - dh) / 2f
+                    canvas.drawBitmap(
+                        frame,
+                        null,
+                        android.graphics.RectF(dx, dy, dx + dw, dy + dh),
+                        paint,
+                    )
+                    frame.recycle()
+                    canvas.drawText("${i + 1}", left + 6f * scale, top + 22f * scale, labelPaint)
+                    canvas.drawText(
+                        formatClock(tSec),
+                        left + 6f * scale,
+                        top + 40f * scale,
+                        timePaint,
+                    )
+                }
+                grids.add(grid)
+            }
+            if (dumpDebug) {
+                runCatching {
+                    cacheDir?.let { dir ->
+                        grids.forEachIndexed { idx, bmp ->
+                            File(dir, "bili-grid-mp4-$idx.jpg").outputStream().use { out ->
+                                bmp.compress(Bitmap.CompressFormat.JPEG, 88, out)
+                            }
+                        }
+                    }
+                }
+            }
+            Log.i("BiliFrames", "mp4 grids=${grids.size} cell=${outW / outCols}x${outH / outRows} dur=${durationSec.toInt()}s")
+            return grids
+        } catch (_: Exception) {
+            return null
+        } finally {
+            runCatching { retriever.release() }
+        }
+    }
+
+    /** MP4 缓存文件：按直链哈希命名，避免同一视频重复下载几十 MB。 */
+    private fun mp4CacheFile(playUrl: String, cacheDir: File?): File? {
+        val dir = cacheDir ?: return null
+        val name = "bili-src-" + Integer.toHexString(playUrl.hashCode()) + ".mp4"
+        return File(dir, name)
+    }
     /** 采样平均亮度（0-255），用来跳过纯黑转场帧。 */
     private fun meanBrightness(bitmap: Bitmap): Int {
         val stepX = (bitmap.width / 24).coerceAtLeast(1)
