@@ -422,6 +422,8 @@ class ApiClient(
         dataUrls: List<String>,
         clientMessageId: String? = null,
         transient: Boolean = false,
+        /** false = 只问不记（规划轮之类，避免污染 D1 与记忆）。 */
+        record: Boolean = true,
     ): String = withContext(Dispatchers.IO) {
         val parts = JSONArray()
         if (text.isNotBlank()) parts.put(JSONObject().put("type", "text").put("text", text))
@@ -444,6 +446,7 @@ class ApiClient(
             .put("stream", false)
             .put("inject_history", true)
         if (!clientMessageId.isNullOrBlank()) body.put("client_message_id", clientMessageId)
+        if (!record) body.put("record", false)
         val request = Request.Builder()
             .url("$baseUrl/v1/chat/completions")
             .header("Authorization", "Bearer ${requireToken()}")

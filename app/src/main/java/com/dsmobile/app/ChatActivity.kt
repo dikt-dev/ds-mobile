@@ -526,19 +526,49 @@ private fun ChatScreen(
         } else {
             emptyList()
         }
+        // 长视频：先让模型报出「哪里看不清」，再从本地缓存的 MP4 里补原始分辨率帧。
+        // 规划轮 record=false，不写 D1、不进记忆，用户在界面上也看不到。
+        val detailFrames = if (frames.isNotEmpty() && bili != null && bili.playUrl.isNotBlank()) {
+            runCatching {
+                val dur = bili.storyboardIndex.lastOrNull() ?: 0.0
+                if (dur < 150.0) {
+                    emptyList()
+                } else {
+                    val plan = api.chatWithImages(
+                        outgoing + "\n\n" + LOOK_PLAN_RULE,
+                        frames.map { bitmapToDataUrl(it) },
+                        null,
+                        transient = true,
+                        record = false,
+                    )
+                    val times = parseLookTimes(plan)
+                    if (times.isEmpty()) emptyList()
+                    else BiliFrames.detailFrames(bili.playUrl, context.cacheDir, times)
+                }
+            }.getOrDefault(emptyList())
+        } else {
+            emptyList()
+        }
         try {
             // 非流式等待完整回复，避免一边输出一边重排；语音先合成，再让消息进入列表逐句展示。
-            val reply = if (frames.isNotEmpty()) {
+            val allFrames = frames + detailFrames
+            val replyText = if (detailFrames.isNotEmpty()) {
+                outgoing + "\n\n（另外附了 " + detailFrames.size +
+                    " 张你要求看清的原始帧，紧跟宫格之后，左上角标着时间）"
+            } else {
+                outgoing
+            }
+            val reply = if (allFrames.isNotEmpty()) {
                 api.chatWithImages(
-                    outgoing,
-                    frames.map { bitmapToDataUrl(it) },
+                    replyText,
+                    allFrames.map { bitmapToDataUrl(it) },
                     pendingMessage.clientMessageId,
                     transient = true,
                 ).also {
-                    frames.forEach { bmp -> bmp.recycle() }
+                    allFrames.forEach { bmp -> bmp.recycle() }
                 }
             } else {
-                api.chat(outgoing, pendingMessage.clientMessageId)
+                api.chat(replyText, pendingMessage.clientMessageId)
             }
             val voices = parseChatSegments(reply)
                 .filterIsInstance<ChatSegment.Voice>()
@@ -3082,4 +3112,31 @@ private fun MessageImage(api: ApiClient, key: String) {
                 .clip(RoundedCornerShape(12.dp)),
         )
     }
+}
+
+/** 规划轮：只让模型点名它看不清的时间点，不产出回复正文。 */
+private const val LOOK_PLAN_RULE =
+    "【这一轮不要回答用户，只做规划】看清楚上面的宫格图后判断：有没有哪几处画面还看不清、" +
+        "但必须看清才能准确回答？如果有，只输出一行：LOOK: 2:03,3:36（最多 2 个时间点，" +
+        "用冒号格式）；如果够清楚了，只输出：OK。不要输出任何其他内容。"
+
+/** 从规划轮回复里取时间点（支持 2:03 / 123 / 1:02:03）。 */
+private fun parseLookTimes(reply: String): List<Double> {
+    val matched = Regex("LOOK:\\s*(.+)", RegexOption.IGNORE_CASE).find(reply) ?: return emptyList()
+    return matched.groupValues[1]
+        .split(Regex("[,，、\\s]+"))
+        .mapNotNull { token ->
+            val parts = token.trim().trimEnd('s', '。', '.', ')').split(":")
+            if (parts.isEmpty() || parts.size > 3) return@mapNotNull null
+            runCatching {
+                when (parts.size) {
+                    1 -> parts[0].toDouble()
+                    2 -> parts[0].toInt() * 60 + parts[1].toDouble()
+                    else -> parts[0].toInt() * 3600 + parts[1].toInt() * 60 + parts[2].toDouble()
+                }
+            }.getOrNull()
+        }
+        .filter { it > 0.5 }
+        .distinct()
+        .take(2)
 }

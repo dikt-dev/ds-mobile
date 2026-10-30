@@ -419,6 +419,57 @@ object BiliFrames {
         }
     }
 
+    /**
+     * 二次抽帧：模型点名要看清的秒数 → 直接 seek 缓存的 MP4，取原始分辨率帧。
+     * 每处取 3 帧（前后各 2 秒），左上角标时间，让模型能把它们和宫格对上。
+     */
+    suspend fun detailFrames(
+        playUrl: String,
+        cacheDir: File?,
+        seconds: List<Double>,
+    ): List<Bitmap> = withContext(Dispatchers.IO) {
+        if (seconds.isEmpty() || playUrl.isBlank()) return@withContext emptyList()
+        val file = mp4CacheFile(playUrl, cacheDir) ?: return@withContext emptyList()
+        if (!file.exists() || file.length() < 1_000_000L) return@withContext emptyList()
+        val retriever = MediaMetadataRetriever()
+        try {
+            retriever.setDataSource(file.absolutePath)
+            val durationMs = retriever
+                .extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                ?.toLongOrNull() ?: return@withContext emptyList()
+            val out = ArrayList<Bitmap>()
+            for (t in seconds.take(2)) {
+                for (off in doubleArrayOf(-2.0, 0.0, 2.0)) {
+                    val at = (t + off).coerceIn(0.0, durationMs / 1000.0)
+                    val frame = retriever.getFrameAtTime(
+                        (at * 1_000_000).toLong(),
+                        MediaMetadataRetriever.OPTION_CLOSEST,
+                    ) ?: continue
+                    val marked = frame.copy(Bitmap.Config.ARGB_8888, true) ?: frame
+                    if (marked !== frame) frame.recycle()
+                    val canvas = Canvas(marked)
+                    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        color = Color.parseColor("#FFEB3B")
+                        textSize = marked.width / 18f
+                        setShadowLayer(6f, 2f, 2f, Color.BLACK)
+                    }
+                    canvas.drawText(
+                        formatClock(at),
+                        marked.width * 0.02f,
+                        marked.height * 0.08f,
+                        paint,
+                    )
+                    out.add(marked)
+                }
+            }
+            Log.i("BiliFrames", "detail frames=${out.size} for ${seconds.size} points")
+            out
+        } catch (_: Exception) {
+            emptyList()
+        } finally {
+            runCatching { retriever.release() }
+        }
+    }
     /** MP4 缓存文件：按直链哈希命名，避免同一视频重复下载几十 MB。 */
     private fun mp4CacheFile(playUrl: String, cacheDir: File?): File? {
         val dir = cacheDir ?: return null
