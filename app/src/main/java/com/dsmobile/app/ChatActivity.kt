@@ -519,6 +519,7 @@ private fun ChatScreen(
                     timestamps = bili.storyboardIndex,
                     spriteUrls = bili.storyboardUrls,
                     playUrl = bili.playUrl,
+                    cacheKey = bili.bvid,
                     dumpDebug = (context.applicationInfo.flags and
                         android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0,
                 )
@@ -543,7 +544,7 @@ private fun ChatScreen(
                     )
                     val times = parseLookTimes(plan)
                     if (times.isEmpty()) emptyList()
-                    else BiliFrames.detailFrames(bili.playUrl, context.cacheDir, times)
+                    else BiliFrames.detailFrames(bili.playUrl, context.cacheDir, times, bili.bvid)
                 }
             }.getOrDefault(emptyList())
         } else {

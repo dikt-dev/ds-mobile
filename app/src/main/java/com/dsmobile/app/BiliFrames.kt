@@ -83,13 +83,15 @@ object BiliFrames {
         spriteUrls: List<String> = emptyList(),
         /** MP4 直链：给了就用原始帧，比雪碧图（单格 160×90）清楚一个量级。 */
         playUrl: String = "",
+        /** MP4 缓存键：bvid 之类稳定值。直链带签名（deadline/sign），拿它当键永远命中不了。 */
+        cacheKey: String = "",
         /** debug 包把成品宫格存到 cache 目录，方便 adb 拉出来核对。 */
         dumpDebug: Boolean = false,
     ): List<Bitmap> = withContext(Dispatchers.IO) {
         // 原始帧优先：雪碧图单格往往只有 160×90，放大到宫格里就是糊的
         if (playUrl.isNotBlank()) {
             val mp4 = runCatching {
-                loadMp4Grids(playUrl, cookie, cacheDir, dumpDebug)
+                loadMp4Grids(playUrl, cookie, cacheDir, dumpDebug, cacheKey)
             }.getOrNull()
             if (!mp4.isNullOrEmpty()) return@withContext mp4
         }
@@ -294,9 +296,11 @@ object BiliFrames {
         cookie: String,
         cacheDir: File?,
         dumpDebug: Boolean,
+        cacheKey: String,
     ): List<Bitmap>? {
-        val file = mp4CacheFile(playUrl, cacheDir) ?: return null
+        val file = mp4CacheFile(cacheKey.ifBlank { playUrl }, cacheDir) ?: return null
         if (!file.exists() || file.length() < 1_000_000L) {
+            pruneMp4Cache(cacheDir)
             file.parentFile?.mkdirs()
             val request = Request.Builder()
                 .url(playUrl)
@@ -427,9 +431,10 @@ object BiliFrames {
         playUrl: String,
         cacheDir: File?,
         seconds: List<Double>,
+        cacheKey: String = "",
     ): List<Bitmap> = withContext(Dispatchers.IO) {
         if (seconds.isEmpty() || playUrl.isBlank()) return@withContext emptyList()
-        val file = mp4CacheFile(playUrl, cacheDir) ?: return@withContext emptyList()
+        val file = mp4CacheFile(cacheKey.ifBlank { playUrl }, cacheDir) ?: return@withContext emptyList()
         if (!file.exists() || file.length() < 1_000_000L) return@withContext emptyList()
         val retriever = MediaMetadataRetriever()
         try {
@@ -471,10 +476,22 @@ object BiliFrames {
         }
     }
     /** MP4 缓存文件：按直链哈希命名，避免同一视频重复下载几十 MB。 */
-    private fun mp4CacheFile(playUrl: String, cacheDir: File?): File? {
+    private fun mp4CacheFile(key: String, cacheDir: File?): File? {
         val dir = cacheDir ?: return null
-        val name = "bili-src-" + Integer.toHexString(playUrl.hashCode()) + ".mp4"
+        val name = "bili-src-" + Integer.toHexString(key.hashCode()) + ".mp4"
         return File(dir, name)
+    }
+
+    /** 缓存别无限长：超过 8 个文件或 7 天没动过的删掉。 */
+    private fun pruneMp4Cache(cacheDir: File?) {
+        val dir = cacheDir ?: return
+        runCatching {
+            val files = dir.listFiles { it -> it.name.startsWith("bili-src-") && it.name.endsWith(".mp4") }
+                ?: return
+            val cutoff = System.currentTimeMillis() - 7L * 24 * 3600 * 1000
+            files.filter { it.lastModified() < cutoff }.forEach { it.delete() }
+            files.sortedByDescending { it.lastModified() }.drop(8).forEach { it.delete() }
+        }
     }
     /** 采样平均亮度（0-255），用来跳过纯黑转场帧。 */
     private fun meanBrightness(bitmap: Bitmap): Int {
