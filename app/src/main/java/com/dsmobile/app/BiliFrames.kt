@@ -359,6 +359,8 @@ object BiliFrames {
                 MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
             ) ?: return null
             if (probe.width <= 0 || probe.height <= 0) return null
+            val srcW = probe.width
+            val srcH = probe.height
             val cellAspect = probe.width.toFloat() / probe.height.toFloat()
             probe.recycle()
             val outCols = 3
@@ -441,7 +443,11 @@ object BiliFrames {
                     }
                 }
             }
-            Log.i("BiliFrames", "mp4 grids=${grids.size} cell=${outW / outCols}x${outH / outRows} dur=${durationSec.toInt()}s")
+            Log.i(
+                "BiliFrames",
+                "mp4 grids=${grids.size} cell=${outW / outCols}x${outH / outRows} " +
+                    "src=${srcW}x${srcH} dur=${durationSec.toInt()}s",
+            )
             return grids
         } catch (_: Exception) {
             return null
