@@ -72,6 +72,42 @@ object TtsManager {
         }
     }
 
+    /**
+     * 设置页试听：用界面上**还没保存**的参数合成一句。
+     *
+     * 不写进普通缓存（cacheFile 按 settings 算 key），固定一个文件名覆盖，
+     * 免得还没保存的参数污染正式语音的缓存。
+     */
+    suspend fun preview(
+        context: Context,
+        settings: SettingsStore,
+        text: String,
+        voice: String,
+        rate: String,
+        pitch: String,
+        styleDegree: String,
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            val style = styleFor(text)
+            val token = settings.token
+            val bytes = if (!token.isNullOrBlank()) {
+                runCatching {
+                    workerTtsWith(settings.baseUrl, token, text, voice, rate, pitch, styleDegree, style)
+                }.getOrElse { err ->
+                    if (settings.azureKey.isBlank()) throw err
+                    azureTts(settings.azureKey, settings.azureRegion, voice, rate, pitch, styleDegree, style, text)
+                }
+            } else {
+                if (settings.azureKey.isBlank()) throw IllegalStateException("缺少 Azure Key")
+                azureTts(settings.azureKey, settings.azureRegion, voice, rate, pitch, styleDegree, style, text)
+            }
+            val dir = File(context.cacheDir, "tts-preview").apply { mkdirs() }
+            val file = File(dir, "preview.mp3")
+            file.writeBytes(bytes)
+            withContext(Dispatchers.Main) { play(context, file) }
+        }
+    }
+
     /** 先把语音合成好，慢一点没关系，等分段输出前用。 */
     suspend fun prepare(context: Context, settings: SettingsStore, text: String): Boolean {
         val clean = stripSpokenActions(text)
@@ -167,17 +203,38 @@ object TtsManager {
         token: String,
         text: String,
         style: String,
+    ): ByteArray = workerTtsWith(
+        baseUrl = settings.baseUrl,
+        token = token,
+        text = text,
+        voice = settings.azureVoice,
+        rate = settings.azureRate,
+        pitch = settings.azurePitch,
+        styleDegree = settings.azureStyleDegree,
+        style = style,
+    )
+
+    /** 参数显式传入：设置页试听要用**还没保存**的值，不能读 settings。 */
+    private fun workerTtsWith(
+        baseUrl: String,
+        token: String,
+        text: String,
+        voice: String,
+        rate: String,
+        pitch: String,
+        styleDegree: String,
+        style: String,
     ): ByteArray {
         val body = org.json.JSONObject().apply {
             put("text", text)
-            put("voice", settings.azureVoice)
-            put("rate", settings.azureRate)
-            put("pitch", settings.azurePitch)
+            put("voice", voice)
+            put("rate", rate)
+            put("pitch", pitch)
             put("style", style)
-            put("style_degree", settings.azureStyleDegree)
+            put("style_degree", styleDegree)
         }.toString()
         val request = Request.Builder()
-            .url("${settings.baseUrl.trimEnd('/')}/api/app/tts")
+            .url("${baseUrl.trimEnd('/')}/api/app/tts")
             .header("Authorization", "Bearer $token")
             .header("Content-Type", "application/json")
             .post(body.toRequestBody("application/json".toMediaType()))

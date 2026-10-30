@@ -31,6 +31,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -46,6 +47,11 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.dsmobile.app.data.SettingsStore
 import com.dsmobile.app.speech.TtsConfigSync
+import com.dsmobile.app.speech.TtsManager
+import kotlinx.coroutines.launch
+
+/** 试听固定念这一句：有语气、够短，能听出 style 有没有生效。 */
+private const val PREVIEW_TEXT = "哼，先听听这个声音顺不顺耳。"
 
 /**
  * 独立设置页：整屏、分区、每个输入框都有说明。
@@ -71,6 +77,9 @@ fun SettingsScreen(
     var biliSessdata by remember { mutableStateOf(settings.biliSessdata) }
     var sshKey by remember { mutableStateOf(settings.sshPublicKey) }
     var baseUrl by remember { mutableStateOf(settings.baseUrl) }
+    var previewing by remember { mutableStateOf(false) }
+    var previewMsg by remember { mutableStateOf("") }
+    val scope = rememberCoroutineScope()
 
     fun save() {
         settings.baseUrl = baseUrl
@@ -136,6 +145,49 @@ fun SettingsScreen(
                             }
                         }
                         Field("情绪强度", styleDegree, { styleDegree = it }, hint = "0.5 – 2.0，默认 1.2")
+                        // 试听用的是上面输入框的值，不是已保存的值——不然改完点试听没变化，会以为坏了
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Button(
+                                onClick = {
+                                    previewing = true
+                                    previewMsg = ""
+                                    scope.launch {
+                                        val result = TtsManager.preview(
+                                            context = context,
+                                            settings = settings,
+                                            text = PREVIEW_TEXT,
+                                            voice = voice,
+                                            rate = rate,
+                                            pitch = pitch,
+                                            styleDegree = styleDegree,
+                                        )
+                                        previewing = false
+                                        previewMsg = result.fold(
+                                            onSuccess = { "" },
+                                            onFailure = { e ->
+                                                val msg = e.message.orEmpty()
+                                                when {
+                                                    msg.contains("401") || msg.contains("403") -> "Key 好像不对"
+                                                    msg.contains("Azure Key") -> "先填 Azure Key"
+                                                    msg.contains("HTTP") -> "试听失败（$msg）"
+                                                    else -> "试听失败了，检查一下网络"
+                                                }
+                                            },
+                                        )
+                                    }
+                                },
+                                enabled = key.isNotBlank() && !previewing,
+                                shape = RoundedCornerShape(14.dp),
+                            ) { Text(if (previewing) "合成中…" else "▶ 试听") }
+                            Spacer(Modifier.width(10.dp))
+                            Text(
+                                previewMsg.ifEmpty {
+                                    if (key.isBlank()) "填了 Key 才能试听" else "用上面填的参数念一句"
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFF8F89A0),
+                            )
+                        }
                     }
 
                     SectionCard(
