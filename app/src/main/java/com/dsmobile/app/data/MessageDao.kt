@@ -20,7 +20,8 @@ interface MessageDao {
     @Query("UPDATE messages SET content = TRIM(REPLACE(content, '[END]', '')) WHERE content LIKE '%[END]%'")
     suspend fun stripSilentEndMarkers()
 
-    @Query("UPDATE messages SET content = TRIM(SUBSTR(content, INSTR(content, ']') + 1)) WHERE content LIKE '[10-%]%' AND INSTR(content, ']') > 0")
+    // 用 GLOB 而不是 LIKE '[10-%]'：之前把月份写死成 10，11 月起的旧前缀就清不掉了。
+    @Query("UPDATE messages SET content = TRIM(SUBSTR(content, INSTR(content, ']') + 1)) WHERE content GLOB '[[]??-?? ??:??]*' AND INSTR(content, ']') > 0")
     suspend fun stripLeadingTimeLabels()
 
     @Query("SELECT COALESCE(MAX(id), 0) FROM messages")

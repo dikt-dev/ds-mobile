@@ -2448,11 +2448,27 @@ private fun biliMetaText(preview: BiliPreview, url: String): String = buildStrin
 }
 
 private fun stripBiliMeta(text: String): String =
-    text
+    stripLeadTimeLabels(text)
         .replace(Regex("(?s)\\[BILI_META\\].*?\\[/BILI_META\\]"), "")
         .replace(Regex("(?s)\\[WEB_META\\].*?\\[/WEB_META\\]"), "")
         .replace("[视频帧]", "")
         .trim()
+
+/**
+ * 历史注入时给每条消息加了 [MM-DD HH:MM] 前缀，模型偶尔会模仿到回复开头。
+ * 服务端已清洗（主防线），这里兜第二层：本地缓存里的旧消息、非流式回放都不会显示它。
+ */
+private val LEAD_TIME_RE = Regex("""^\s*[\[【]\s*(?:(?:\d{2,4}[-/])?\d{1,2}[-/]\d{1,2}\s*)?\d{1,2}:\d{2}(?::\d{2})?\s*[\]】]\s*""")
+
+private fun stripLeadTimeLabels(text: String): String {
+    var s = text
+    repeat(3) {
+        val next = s.replace(LEAD_TIME_RE, "")
+        if (next == s) return s
+        s = next
+    }
+    return s
+}
 
 private fun webMetaText(preview: WebPreview, url: String): String = buildString {
     appendLine("[WEB_META]")
