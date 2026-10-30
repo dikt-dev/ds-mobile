@@ -2424,6 +2424,7 @@ private fun biliMetaText(preview: BiliPreview, url: String): String = buildStrin
     }
     appendLine()
     appendLine("## 字幕（带时间戳，共 ${preview.subtitleCount} 句）")
+    appendLine("（B站自动识别，可能有同音错字或乱码，看不懂的整句跳过，不要拿去引用）")
     appendLine(
         preview.subtitle.ifBlank {
             if (preview.subtitleCount == 0) {
