@@ -2420,7 +2420,15 @@ private fun biliMetaText(preview: BiliPreview, url: String): String = buildStrin
     if (preview.outline.isNotEmpty()) {
         appendLine()
         appendLine("## 官方大纲")
-        preview.outline.forEach { appendLine("- $it") }
+        // B站大纲二级项是 "  · 文本"（空格 + 中点），直接拼 "- " 会变成 "-   · 文本"
+        val seenOutline = HashSet<String>()
+        preview.outline.forEach { raw ->
+            val line = raw.trim()
+            if (line.isEmpty()) return@forEach
+            val key = line.removePrefix("·").trim()
+            if (!seenOutline.add(key)) return@forEach
+            if (line.startsWith("·")) appendLine("  - $key") else appendLine("- $key")
+        }
     }
     appendLine()
     appendLine("## 字幕（带时间戳，共 ${preview.subtitleCount} 句）")
