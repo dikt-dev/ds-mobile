@@ -1431,8 +1431,9 @@ private fun ChatScreen(
             )
         }
         if (showSettings) {
-            SettingsDialog(
+            SettingsScreen(
                 settings = settings,
+                onClose = { showSettings = false },
                 onBiliLogin = {
                     showSettings = false
                     biliLoginLauncher.launch(Intent(context, BiliLoginActivity::class.java))
@@ -1441,7 +1442,6 @@ private fun ChatScreen(
                     showSettings = false
                     openNotificationSettings(context)
                 },
-                onDismiss = { showSettings = false },
                 onLogout = {
                     showSettings = false
                     onLogout()
@@ -1551,114 +1551,6 @@ private fun VoiceComposer(
             Text("键盘", style = MaterialTheme.typography.labelMedium)
         }
     }
-}
-
-@Composable
-private fun SettingsDialog(
-    settings: SettingsStore,
-    onBiliLogin: () -> Unit,
-    onNotificationSettings: () -> Unit,
-    onDismiss: () -> Unit,
-    onLogout: () -> Unit,
-) {
-    var key by remember { mutableStateOf(settings.azureKey) }
-    var region by remember { mutableStateOf(settings.azureRegion) }
-    var voice by remember { mutableStateOf(settings.azureVoice) }
-    var rate by remember { mutableStateOf(settings.azureRate) }
-    var pitch by remember { mutableStateOf(settings.azurePitch) }
-    var styleDegree by remember { mutableStateOf(settings.azureStyleDegree) }
-    var biliSessdata by remember { mutableStateOf(settings.biliSessdata) }
-    var sshKey by remember { mutableStateOf(settings.sshPublicKey) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("设置") },
-        text = {
-            Column(
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.verticalScroll(rememberScrollState()),
-            ) {
-                Text("Azure TTS（留空则用本地 TTS）", style = MaterialTheme.typography.labelMedium)
-                OutlinedTextField(
-                    value = key,
-                    onValueChange = { key = it },
-                    label = { Text("Azure Speech Key") },
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = region,
-                    onValueChange = { region = it },
-                    label = { Text("Region") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = voice,
-                    onValueChange = { voice = it },
-                    label = { Text("Voice") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = rate,
-                    onValueChange = { rate = it },
-                    label = { Text("Rate（如 +5%）") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = pitch,
-                    onValueChange = { pitch = it },
-                    label = { Text("Pitch（如 +3Hz）") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = styleDegree,
-                    onValueChange = { styleDegree = it },
-                    label = { Text("Style Degree（如 1.2）") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = biliSessdata,
-                    onValueChange = { biliSessdata = it },
-                    label = { Text("B站 SESSDATA（可选，用于总结/字幕）") },
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                TextButton(onClick = onBiliLogin) { Text("在 App 内登录 B 站") }
-                TextButton(onClick = onNotificationSettings) { Text("通知设置 / 悬浮通知权限") }
-
-                Text("SSH 公钥（RSA authorized_keys，可留空）", style = MaterialTheme.typography.labelMedium)
-                OutlinedTextField(
-                    value = sshKey,
-                    onValueChange = { sshKey = it },
-                    label = { Text("ssh-rsa AAAA...") },
-                    maxLines = 3,
-                    modifier = Modifier.fillMaxWidth(),
-                )            }
-        },
-        confirmButton = {
-            TextButton(onClick = {
-                settings.azureKey = key
-                settings.azureRegion = region
-                settings.azureVoice = voice
-                settings.azureRate = rate
-                settings.azurePitch = pitch
-                settings.azureStyleDegree = styleDegree
-                settings.biliSessdata = biliSessdata
-                settings.sshPublicKey = sshKey
-                TtsConfigSync.push(settings)
-                onDismiss()
-            }) { Text("保存") }
-        },
-        dismissButton = {
-            TextButton(onClick = onLogout) { Text("重新配对") }
-        },
-    )
 }
 
 private fun messageDay(raw: String): String {
@@ -2173,12 +2065,16 @@ private fun SegmentedMessage(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(7.dp),
     ) {
-        Text(
-            label,
-            style = MaterialTheme.typography.labelSmall,
-            color = Color(0xFF9A94A6),
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            AvatarBadge(isUser = false, size = 18.dp)
+            Spacer(Modifier.width(5.dp))
+            Text(
+                label,
+                style = MaterialTheme.typography.labelSmall,
+                color = Color(0xFF9A94A6),
+                modifier = Modifier.padding(horizontal = 2.dp, vertical = 3.dp),
+            )
+        }
         segments.take(visibleCount.coerceAtMost(segments.size)).forEach { segment ->
             when (segment) {
                 is ChatSegment.Text -> if (segment.text.isNotBlank()) {
@@ -2804,6 +2700,26 @@ private fun PendingBubble(
     }
 }
 
+/** 头像：AI 用设定图，用户用一张占位图；尺寸可缩到 18dp 放小标题行。 */
+@Composable
+private fun AvatarBadge(isUser: Boolean, size: androidx.compose.ui.unit.Dp = 30.dp) {
+    Box(
+        modifier = Modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(if (isUser) Color(0xFFF3EEFF) else Color(0xFFF0ECFF))
+            .border(1.dp, Color(0x226C5CE7), CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        Image(
+            painter = painterResource(if (isUser) R.drawable.user_avatar else R.drawable.avatar),
+            contentDescription = if (isUser) "我的头像" else "大肥鱼头像",
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize().clip(CircleShape),
+        )
+    }
+}
+
 @Composable
 private fun MessageBubble(
     message: MessageEntity,
@@ -2953,6 +2869,10 @@ private fun MessageBubble(
                 ReadStatus(failed = false)
                 Spacer(Modifier.width(4.dp))
             }
+            if (!isUser) {
+                AvatarBadge(isUser = false)
+                Spacer(Modifier.width(6.dp))
+            }
             val bubbleShape = if (isUser) {
                 RoundedCornerShape(topStart = 20.dp, topEnd = 8.dp, bottomEnd = 20.dp, bottomStart = 20.dp)
             } else {
@@ -3012,6 +2932,10 @@ private fun MessageBubble(
                         WebLinkCard(api, url)
                     }
                 }
+            }
+            if (isUser) {
+                Spacer(Modifier.width(6.dp))
+                AvatarBadge(isUser = true)
             }
             }
         }
