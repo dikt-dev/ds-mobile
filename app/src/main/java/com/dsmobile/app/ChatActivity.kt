@@ -587,8 +587,19 @@ private fun ChatScreen(
             try {
                 when (attachment.kind) {
                     "image" -> {
+                        // 先把自己这边的位图放进缓存：消息刷新后气泡直接命中，不再"消失一下"
+                        val localDrawable = withContext(Dispatchers.IO) {
+                            runCatching {
+                                ImageDecoder.decodeDrawable(
+                                    ImageDecoder.createSource(context.contentResolver, attachment.uri),
+                                )
+                            }.getOrNull()
+                        }
+                        localDrawable?.let { MediaCaches.rememberOutgoing(it) }
                         if (attachment.mime == "image/gif") {
                             val key = api.uploadMedia(context, attachment.uri)
+                            // GIF 的 key 上传后就知道，直接按 key 绑，不依赖"认领"
+                            localDrawable?.let { MediaCaches.putImage(key, it) }
                             val caption = if (text.isBlank()) "[GIF:$key]" else "$text\n[GIF:$key]"
                             api.chat(caption, clientId)
                         } else {
@@ -2949,7 +2960,12 @@ private fun GifBubble(api: ApiClient, key: String) {
 
 @Composable
 private fun MessageImage(api: ApiClient, key: String) {
-    var drawable by remember(key) { mutableStateOf(MediaCaches.image(key)) }
+    var drawable by remember(key) {
+        // 刚发出的图先吃本地那份，别等网络回来（否则会先空一下再显示）
+        mutableStateOf(
+            MediaCaches.image(key) ?: MediaCaches.claimOutgoing()?.also { MediaCaches.putImage(key, it) },
+        )
+    }
     LaunchedEffect(key) {
         if (drawable == null) {
             runCatching { api.image(key) }.onSuccess { bytes ->

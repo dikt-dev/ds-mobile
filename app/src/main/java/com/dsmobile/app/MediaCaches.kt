@@ -28,6 +28,32 @@ object MediaCaches {
     fun image(key: String): Drawable? = images.get(key)
     fun putImage(key: String, drawable: Drawable) = images.put(key, drawable)
 
+    /**
+     * 刚发出、还没拿到服务端 key 的本地图。
+     *
+     * 发图流程是：本地气泡（有 localUri）→ 上传 → 服务端生成 [图片:images/日期/毫秒.ext]
+     * → 消息列表刷新成服务端那条。两条气泡之间没有交集，服务端那条要重新下载才显示，
+     * 于是用户看到"图片消失一下再出现"。这里把本地位图先存起来，刷新后的第一个
+     * 未命中缓存的图直接认领它，气泡一次到位。
+     *
+     * 只保留最近 4 张、20 秒内有效：过期或发失败的不会被后来的图误认领。
+     */
+    private val outgoing = ArrayDeque<Pair<Long, Drawable>>()
+    private const val OUTGOING_TTL_MS = 20_000L
+
+    fun rememberOutgoing(drawable: Drawable) {
+        outgoing.addLast(System.currentTimeMillis() to drawable)
+        while (outgoing.size > 4) outgoing.removeFirst()
+    }
+
+    fun claimOutgoing(now: Long = System.currentTimeMillis()): Drawable? {
+        while (outgoing.isNotEmpty()) {
+            val (at, drawable) = outgoing.removeFirst()
+            if (now - at < OUTGOING_TTL_MS) return drawable
+        }
+        return null
+    }
+
     fun biliPreview(url: String): BiliPreview? = bili.get(url)
     fun putBiliPreview(url: String, preview: BiliPreview) = bili.put(url, preview)
 
