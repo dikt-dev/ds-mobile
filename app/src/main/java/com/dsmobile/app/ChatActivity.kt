@@ -1154,7 +1154,7 @@ private fun ChatScreen(
             ) {
                 Box(
                     modifier = Modifier
-                        .size(54.dp)
+                        .size(40.dp)
                         .shadow(
                             8.dp,
                             CircleShape,
@@ -2194,7 +2194,7 @@ private fun SegmentedMessage(
         verticalArrangement = Arrangement.spacedBy(7.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            AvatarBadge(isUser = false, size = 24.dp)
+            AvatarBadge(isUser = false, size = 26.dp)
             Spacer(Modifier.width(6.dp))
             Text(
                 label,
@@ -2820,7 +2820,7 @@ private fun PendingBubble(
 
 /** 头像：AI 用设定图，用户用一张占位图；尺寸可缩到 18dp 放小标题行。 */
 @Composable
-private fun AvatarBadge(isUser: Boolean, size: androidx.compose.ui.unit.Dp = 44.dp) {
+private fun AvatarBadge(isUser: Boolean, size: androidx.compose.ui.unit.Dp = 50.dp) {
     Box(
         modifier = Modifier
             .size(size)
