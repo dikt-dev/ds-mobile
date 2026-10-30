@@ -119,11 +119,20 @@ object BiliFrames {
         }
 
         try {
+            // 单格宽高比要先知道：竖屏（9:16）用 3 列 × 2 行六格，横屏用 3×3 九格。
+            // 3×3 套竖屏会得到 405×720 的窄长画布，每格只有 135×240，模型看不清表情和字幕。
+            cellDecoder(0)?.let { }
+            val firstCell = cellSizes[0]
+            if (firstCell == null || firstCell[0] <= 0 || firstCell[1] <= 0) return@withContext emptyList()
+            val cellAspect = firstCell[0].toFloat() / firstCell[1].toFloat()
+            val outCols = 3
+            val outRows = if (cellAspect < 0.8f) 2 else 3
+
             // index[] 只列真实帧；末行可能用空白格补齐，按它裁掉
             val totalCells = perSheet * urls.size
             val valid = if (timestamps.isNotEmpty()) min(timestamps.size, totalCells) else totalCells
             if (valid <= 0) return@withContext emptyList()
-            val picks = min(9, valid)
+            val picks = min(outCols * outRows, valid)
             val even = (0 until picks).map {
                 if (picks == 1) 0 else it * (valid - 1) / (picks - 1)
             }
@@ -149,25 +158,23 @@ object BiliFrames {
                 }
                 chosen.sorted()
             }
-            // 画布比例跟着源视频走：3 列 × 3 行时，画布宽高比 == 单格宽高比。
-            // 竖屏视频以前被硬拉进 720×405，画面和人脸都是变形的。
-            cellDecoder(0)?.let { }
-            val firstCell = cellSizes[0]
-            if (firstCell == null || firstCell[0] <= 0 || firstCell[1] <= 0) return@withContext emptyList()
-            val cellAspect = firstCell[0].toFloat() / firstCell[1].toFloat()
-            val maxSide = 720f
+            // 画布长边给到 1024：720 时每格只有 240×135，模型读不清字幕和小物件。
+            // 比例跟着「格子布局 × 单格宽高比」走，竖屏不再被拉变形。
+            val maxSide = 1024f
+            val canvasAspect = (outCols.toFloat() / outRows.toFloat()) * cellAspect
             val outW: Int
             val outH: Int
-            if (cellAspect >= 1f) {
+            if (canvasAspect >= 1f) {
                 outW = maxSide.toInt()
-                outH = (maxSide / cellAspect).toInt().coerceAtLeast(1)
+                outH = (maxSide / canvasAspect).toInt().coerceAtLeast(1)
             } else {
                 outH = maxSide.toInt()
-                outW = (maxSide * cellAspect).toInt().coerceAtLeast(1)
+                outW = (maxSide * canvasAspect).toInt().coerceAtLeast(1)
             }
-            val cellWOut = outW / 3f
-            val cellHOut = outH / 3f
-            val scale = outW / 720f
+            val cellWOut = outW / outCols.toFloat()
+            val cellHOut = outH / outRows.toFloat()
+            // 字号按画布长边走，不再乘 outW/720（竖屏时那会缩到 10px，等于没有）
+            val scale = maxSide / 720f
 
             val grid = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888)
             val canvas = Canvas(grid)
@@ -202,8 +209,8 @@ object BiliFrames {
                     frame = null
                 }
                 val picked = frame ?: return@forEachIndexed
-                val left = (i % 3) * cellWOut
-                val top = (i / 3) * cellHOut
+                val left = (i % outCols) * cellWOut
+                val top = (i / outCols) * cellHOut
                 canvas.drawBitmap(
                     picked,
                     null,
