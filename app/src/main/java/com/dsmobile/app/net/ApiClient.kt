@@ -577,18 +577,25 @@ class ApiClient(
                 var storyboardUrls: List<String> = emptyList()
                 if (cid > 0) {
                     runCatching {
+                        // qn=64 是 720p：只要登录（SESSDATA）就能拿，不需要大会员；1080p 才要大会员。
+                        // 服务器给不到就自动降级，拿到的 quality 记日志方便核对。
                         val u = "https://api.bilibili.com/x/player/playurl" +
-                            "?bvid=$bvid&cid=$cid&qn=16&fnval=1&fnver=0&fourk=0"
+                            "?bvid=$bvid&cid=$cid&qn=64&fnval=1&fnver=0&fourk=0"
                         val playReq = Request.Builder().url(u)
                             .apply { headers.forEach { (k, v) -> header(k, v) } }
                             .get().build()
                         execute(playReq).use { pr ->
-                            playUrl = JSONObject(pr.body?.string().orEmpty())
-                                .optJSONObject("data")
+                            val data = JSONObject(pr.body?.string().orEmpty()).optJSONObject("data")
+                            val quality = data?.optInt("quality") ?: 0
+                            playUrl = data
                                 ?.optJSONArray("durl")
                                 ?.optJSONObject(0)
                                 ?.optString("url")
                                 .orEmpty()
+                            android.util.Log.i(
+                                "BiliApi",
+                                "playurl quality=$quality url=" + (if (playUrl.isBlank()) "none" else "ok"),
+                            )
                         }
                     }
                     runCatching {
