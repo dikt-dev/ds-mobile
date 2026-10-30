@@ -1226,7 +1226,11 @@ private fun ChatScreen(
                         },
                         showMeta = !sameSpeaker,
                         grouped = sameSpeaker,
-                        showRead = message.role == "user" && !nextSameSpeaker,
+                        // "已读"要等她的回复真的到手机上才亮：不是发出去就亮。
+                        // 亮之后 ChatUi 里还会空 1.5 秒再开口（READ_HOLD_MS）。
+                        showRead = message.role == "user" &&
+                            !nextSameSpeaker &&
+                            newer?.role == "assistant",
                         animate = animateSegments,
                         onSpeak = { TtsManager.speak(context, settings, it) },
                         onPrefetch = { TtsManager.prefetch(context, settings, it) },

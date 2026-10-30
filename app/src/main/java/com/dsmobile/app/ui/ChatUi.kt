@@ -1112,11 +1112,18 @@ private fun SegmentedBody(
         voices.forEach { if (it.isNotBlank()) onPrefetch(it) }
     }
     val alreadyRevealed = !animate || revealedMessageIds.contains(messageId)
+    // 先空着（显示"正在输入"），等"已读"亮出来一两秒后再开始逐句显示：
+    // 顺序是「她收到 → 读了 → 停一下 → 才开口」，而不是字和已读一起蹦出来。
     var visibleCount by remember(messageId) {
-        mutableStateOf(if (alreadyRevealed) segments.size else 1)
+        mutableStateOf(if (alreadyRevealed) segments.size else 0)
     }
     LaunchedEffect(messageId, segments.size, animate) {
-        if (animate && !revealedMessageIds.contains(messageId)) {
+        if (animate && !revealedMessageIds.contains(messageId) && segments.isNotEmpty()) {
+            if (visibleCount == 0) {
+                delay(READ_HOLD_MS)
+                visibleCount = 1
+                onReveal()
+            }
             while (visibleCount < segments.size) {
                 delay(1000)
                 visibleCount++
@@ -1124,6 +1131,10 @@ private fun SegmentedBody(
             }
             revealedMessageIds.add(messageId)
         }
+    }
+    if (visibleCount == 0 && segments.isNotEmpty()) {
+        TypingDots()
+        return
     }
     segments.take(visibleCount.coerceAtMost(segments.size)).forEach { segment ->
         when (segment) {
@@ -1232,6 +1243,9 @@ private fun VoiceWaveform(color: Color, modifier: Modifier = Modifier) {
 // ══════════════════════════════════════════════════════════════════════
 // 正在输入 / 待发送
 // ══════════════════════════════════════════════════════════════════════
+
+/** "已读"亮起到她开口之间的停顿（毫秒）。 */
+private const val READ_HOLD_MS = 1500L
 
 @Composable
 private fun TypingDots() {
