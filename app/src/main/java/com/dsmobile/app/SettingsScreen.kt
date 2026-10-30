@@ -96,6 +96,8 @@ fun SettingsScreen(
     var previewMsg by remember { mutableStateOf("") }
     // 后台常驻是即时生效的（不是保存才生效），因为它控制一个正在跑的服务
     var keepAliveOn by remember { mutableStateOf(settings.keepAliveEnabled) }
+    // 到点提醒也是即时生效：改了就要立刻重挂/取消闹钟
+    var notifyOn by remember { mutableStateOf(settings.proactiveNotifyEnabled) }
     // 清 Token 是不可逆操作，二次确认一次，避免在设置里滑一下就掉登录
     var confirmAction by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
@@ -331,6 +333,27 @@ fun SettingsScreen(
                     Column {
                         DsSectionLabel("通知")
                         DsCard(contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
+                            DsSwitchRow(
+                                title = "到点提醒",
+                                checked = notifyOn,
+                                subtitle = if (notifyOn) {
+                                    "一天最多 4 次唤醒，她到点发消息时弹通知（不常驻）"
+                                } else {
+                                    "关掉后只有打开 App 才看到她的主动消息"
+                                },
+                                onCheckedChange = { on ->
+                                    notifyOn = on
+                                    settings.proactiveNotifyEnabled = on
+                                    scope.launch {
+                                        if (on) {
+                                            com.dsmobile.app.service.ProactiveScheduler.refresh(context)
+                                        } else {
+                                            com.dsmobile.app.service.ProactiveScheduler.cancelAll(context)
+                                        }
+                                    }
+                                },
+                            )
+                            DsDivider(Modifier.padding(start = 16.dp))
                             DsSwitchRow(
                                 title = "后台常驻",
                                 checked = keepAliveOn,

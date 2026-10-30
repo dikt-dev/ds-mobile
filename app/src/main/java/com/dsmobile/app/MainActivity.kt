@@ -105,6 +105,11 @@ class MainActivity : ComponentActivity() {
         var sshStatus by remember { mutableStateOf(DebugSshService.status) }
         var sshPassword by remember { mutableStateOf(DebugSshService.password) }
         var sshIp by remember { mutableStateOf(DebugSshService.ip) }
+        var notifyOn by remember {
+            mutableStateOf(SettingsStore(this@MainActivity).proactiveNotifyEnabled)
+        }
+        var scheduleText by remember { mutableStateOf("") }
+        var wakeText by remember { mutableStateOf("") }
         var parseRunning by remember { mutableStateOf(false) }
         var parseResult by remember { mutableStateOf("") }
         var sttRunning by remember { mutableStateOf(false) }
@@ -120,6 +125,9 @@ class MainActivity : ComponentActivity() {
                 sshStatus = DebugSshService.status
                 sshPassword = DebugSshService.password
                 sshIp = DebugSshService.ip
+                notifyOn = SettingsStore(this@MainActivity).proactiveNotifyEnabled
+                scheduleText = com.dsmobile.app.service.ProactiveScheduler.scheduleSummary(this@MainActivity)
+                wakeText = com.dsmobile.app.service.ProactiveScheduler.wakeSummary(this@MainActivity)
                 delay(1_000)
             }
         }
@@ -211,6 +219,69 @@ class MainActivity : ComponentActivity() {
                     DsOutlineButton(
                         "电池优化：设为不限制",
                         onClick = { requestIgnoreBatteryOptimizations() },
+                    )
+                }
+
+                // ── 到点提醒（闹钟）────────────────────────────
+                DsCard {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        DsDot(
+                            if (notifyOn) Ds.colors.success else Ds.colors.inkTertiary,
+                            8.dp,
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "到点提醒（闹钟）",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = Ds.colors.ink,
+                        )
+                        Spacer(Modifier.weight(1f))
+                        Text(
+                            if (notifyOn) "已开启" else "已关闭",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = if (notifyOn) Ds.colors.success else Ds.colors.inkTertiary,
+                        )
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "一天最多 4 次唤醒，每次一个请求。不常驻、不需要精确闹钟权限；" +
+                            "系统拖后十几分钟也不影响（窗口本身就宽）。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Ds.colors.inkTertiary,
+                    )
+                    Spacer(Modifier.height(DsSpace.sm))
+                    KvRow("下次唤醒", scheduleText.ifBlank { "—" })
+                    Spacer(Modifier.height(DsSpace.xs))
+                    KvRow("最近唤醒", wakeText.ifBlank { "—" })
+                    Spacer(Modifier.height(DsSpace.sm))
+                    DsButton(
+                        "30 秒后自测触发",
+                        onClick = {
+                            com.dsmobile.app.service.ProactiveScheduler.triggerIn(
+                                this@MainActivity,
+                                30,
+                            )
+                        },
+                    )
+                    Spacer(Modifier.height(DsSpace.xs))
+                    DsOutlineButton(
+                        "测试通知",
+                        onClick = {
+                            com.dsmobile.app.service.ProactiveNotifier.notify(
+                                this@MainActivity,
+                                "测试通知：这条是自测，不是她说的。",
+                                System.currentTimeMillis(),
+                            )
+                        },
+                    )
+                    Spacer(Modifier.height(DsSpace.xs))
+                    DsOutlineButton(
+                        "重新计算闹钟",
+                        onClick = {
+                            scope.launch {
+                                com.dsmobile.app.service.ProactiveScheduler.refresh(this@MainActivity)
+                            }
+                        },
                     )
                 }
 

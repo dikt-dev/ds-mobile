@@ -963,6 +963,13 @@ private fun ChatScreen(
         }
     }
 
+    // 到点提醒：每次进聊天页对一次账（幂等重挂），计划接口挂了就用兜底时段
+    LaunchedEffect(token) {
+        if (token.isNotBlank()) {
+            runCatching { com.dsmobile.app.service.ProactiveScheduler.refresh(context) }
+        }
+    }
+
     // 后台常驻默认关闭：只有设置里开了才常驻（省电、少一条常驻通知）
     LaunchedEffect(token, settings.keepAliveEnabled) {
         if (token.isNotBlank() && settings.keepAliveEnabled) {

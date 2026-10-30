@@ -59,6 +59,31 @@ class SettingsStore(context: Context) {
         get() = prefs.getBoolean("keep_alive_enabled", false)
         set(value) = prefs.edit().putBoolean("keep_alive_enabled", value).apply()
 
+    /**
+     * 「到点提醒」：闹钟在计划时刻前 12 分钟醒来，拉一次消息并弹本地通知。
+     *
+     * 不常驻、不轮询：一天最多 4 次唤醒，每次一个请求。
+     * 默认开着——这是后台保活退休后的通知手段。
+     */
+    var proactiveNotifyEnabled: Boolean
+        get() = prefs.getBoolean("proactive_notify_enabled", true)
+        set(value) = prefs.edit().putBoolean("proactive_notify_enabled", value).apply()
+
+    /** 已经弹过通知的最大消息 id，避免同一条反复提醒。 */
+    var lastNotifiedId: Long
+        get() = prefs.getLong("last_notified_id", 0L)
+        set(value) = prefs.edit().putLong("last_notified_id", value).apply()
+
+    /** 最近几次唤醒记录（JSON 数组），调试页展示「闹钟延迟」用。 */
+    var proactiveWakeLog: String?
+        get() = prefs.getString("proactive_wake_log", null)
+        set(value) = prefs.edit().putString("proactive_wake_log", value).apply()
+
+    /** 当前挂着的闹钟（JSON 数组），调试页展示下次唤醒时间用。 */
+    var proactiveSchedule: String?
+        get() = prefs.getString("proactive_schedule", null)
+        set(value) = prefs.edit().putString("proactive_schedule", value).apply()
+
     var azureKey: String
         get() = prefs.getString("azure_key", "") ?: ""
         set(value) = prefs.edit().putString("azure_key", value.trim()).apply()

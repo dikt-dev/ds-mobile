@@ -75,6 +75,15 @@
         </service>
 
         <receiver
+            android:name=".service.ProactiveCheckReceiver"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.dsmobile.app.action.PROACTIVE_CHECK" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
             android:name=".service.BootReceiver"
             android:enabled="true"
             android:exported="true">

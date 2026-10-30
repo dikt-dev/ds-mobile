@@ -32,6 +32,27 @@ data class ProactivePush(
     val createdAt: String,
 )
 
+/** 今日主动消息计划里的一档：客户端在 at 前 12 分钟设闹钟。 */
+data class ProactivePlanSlot(
+    val key: String,
+    val kind: String,
+    /** 北京时间 HH:MM */
+    val at: String,
+    /** 当天第几分钟（0-1439，北京时间）；fallback 条目可能为 -1 */
+    val atMinutes: Int,
+    val generated: Boolean = false,
+)
+
+data class ProactivePlan(
+    val date: String,
+    val paused: Boolean,
+    val level: String = "normal",
+    val toleranceMin: Int = 15,
+    val notifyDeadlineMin: Int = 30,
+    val slots: List<ProactivePlanSlot> = emptyList(),
+    val fallback: List<ProactivePlanSlot> = emptyList(),
+)
+
 data class BiliPreview(
     val title: String,
     val owner: String,
@@ -192,6 +213,52 @@ class ApiClient(
                     )
                 }
             }
+        }
+    }
+
+    /**
+     * 今日主动消息计划。
+     *
+     * 时间由服务端按日期种子算好，客户端不复刻随机算法；拿到 slots 后
+     * 在 `at - tolerance_min` 设一个 setAndAllowWhileIdle 闹钟（不需要精确闹钟权限）。
+     */
+    suspend fun proactivePlan(date: String? = null): ProactivePlan = withContext(Dispatchers.IO) {
+        val suffix = if (date.isNullOrBlank()) "" else "?date=$date"
+        val request = Request.Builder()
+            .url("$baseUrl/api/proactive/plan$suffix")
+            .header("Authorization", "Bearer ${requireToken()}")
+            .get()
+            .build()
+        execute(request).use { response ->
+            val text = response.body?.string().orEmpty()
+            if (!response.isSuccessful) throw ApiException(errorText(response.code, text))
+            val root = JSONObject(text)
+            fun parse(arr: JSONArray?): List<ProactivePlanSlot> = buildList {
+                if (arr == null) return@buildList
+                for (i in 0 until arr.length()) {
+                    val o = arr.optJSONObject(i) ?: continue
+                    val key = o.optString("key")
+                    if (key.isBlank()) continue
+                    add(
+                        ProactivePlanSlot(
+                            key = key,
+                            kind = o.optString("kind"),
+                            at = o.optString("at"),
+                            atMinutes = o.optInt("at_minutes", -1),
+                            generated = o.optBoolean("generated"),
+                        )
+                    )
+                }
+            }
+            ProactivePlan(
+                date = root.optString("date"),
+                paused = root.optBoolean("paused"),
+                level = root.optString("level", "normal"),
+                toleranceMin = root.optInt("tolerance_min", 15),
+                notifyDeadlineMin = root.optInt("notify_deadline_min", 30),
+                slots = parse(root.optJSONArray("slots")),
+                fallback = parse(root.optJSONArray("fallback")),
+            )
         }
     }
 
