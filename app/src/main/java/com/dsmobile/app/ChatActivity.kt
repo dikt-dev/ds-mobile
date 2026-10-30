@@ -156,6 +156,14 @@ import java.util.UUID
  * 打开入口分散在很深的组合树里（气泡头像），层层传回调不划算；
  * 用文件级状态，ChatApp 直接观察它。
  */
+/**
+ * 媒体消息的「安静期」。
+ *
+ * 先让用户看见图片/视频/链接卡片，再让 AI 开口——她不需要秒回，
+ * 反而是「刚发出去就被回复」会让人觉得自己发的东西没被看。
+ */
+private const val MEDIA_SETTLE_MS = 1500L
+
 private object StatusPanelState {
     var visible by mutableStateOf(false)
 }
@@ -588,6 +596,14 @@ private fun ChatScreen(
             emptyList()
         }
         android.util.Log.i("BiliAi", "frames=" + frames.size + " detail=" + detailFrames.size)
+        // ★ 带链接/视频时先停一下：卡片和封面已经渲染，让她看完再开口
+        val mediaTurn = bili != null || web != null ||
+            text.contains("[视频:") || text.contains("[GIF:")
+        if (mediaTurn) {
+            status = "正看着你发的…"
+            withFrameNanos { }
+            delay(MEDIA_SETTLE_MS)
+        }
         try {
             // 非流式等待完整回复，避免一边输出一边重排；语音先合成，再让消息进入列表逐句展示。
             val allFrames = frames + detailFrames
@@ -653,6 +669,10 @@ private fun ChatScreen(
             stickToBottom = true
             withFrameNanos { }
             listState.scrollToItem(0)
+            // ★ 附件先露个面：气泡已经在列表里，再等 1.5 秒才请求
+            status = "正看着你发的…"
+            withFrameNanos { }
+            delay(MEDIA_SETTLE_MS)
             try {
                 when (attachment.kind) {
                     "image" -> {
