@@ -550,6 +550,10 @@ private fun ChatScreen(
                         record = false,
                     )
                     val times = parseLookTimes(plan)
+                    android.util.Log.i(
+                        "BiliAi",
+                        "plan=[" + plan.take(40).replace("\n", " ") + "] times=" + times.size,
+                    )
                     if (times.isEmpty()) emptyList()
                     else BiliFrames.detailFrames(usingPlayUrl, context.cacheDir, times, bili.bvid)
                 }
@@ -557,6 +561,7 @@ private fun ChatScreen(
         } else {
             emptyList()
         }
+        android.util.Log.i("BiliAi", "frames=" + frames.size + " detail=" + detailFrames.size)
         try {
             // 非流式等待完整回复，避免一边输出一边重排；语音先合成，再让消息进入列表逐句展示。
             val allFrames = frames + detailFrames
@@ -3124,9 +3129,9 @@ private fun MessageImage(api: ApiClient, key: String) {
 
 /** 规划轮：只让模型点名它看不清的时间点，不产出回复正文。 */
 private const val LOOK_PLAN_RULE =
-    "【这一轮不要回答用户，只做规划】看清楚上面的宫格图后判断：有没有哪几处画面还看不清、" +
-        "但必须看清才能准确回答？如果有，只输出一行：LOOK: 2:03,3:36（最多 2 个时间点，" +
-        "用冒号格式）；如果够清楚了，只输出：OK。不要输出任何其他内容。"
+    "【这一轮不要回答用户，只做规划】从上面的宫格图里挑出 1–2 个最关键、你最想看清确证的时刻" +
+        "（比如动作发生的一瞬间、表情最明显的画面），只输出一行：LOOK: 2:03,3:36（冒号格式，最多 2 个）。" +
+        "只有整段视频确实没有任何需要看清的地方，才输出 OK。不要输出任何其他内容。"
 
 /** 从规划轮回复里取时间点（支持 2:03 / 123 / 1:02:03）。 */
 private fun parseLookTimes(reply: String): List<Double> {
