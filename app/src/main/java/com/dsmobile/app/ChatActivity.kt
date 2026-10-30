@@ -29,6 +29,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.Canvas
@@ -390,16 +391,6 @@ private fun ChatScreen(
     var status by remember { mutableStateOf("") }
     var streamingText by remember { mutableStateOf("") }
     var showSettings by remember { mutableStateOf(false) }
-    var showCamera by remember { mutableStateOf(false) }
-    val cameraPermission = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (granted) {
-            showCamera = true
-        } else {
-            status = "相机权限没给，拍不了照"
-        }
-    }
     var initialScrollDone by remember { mutableStateOf(false) }
     var historyReady by remember { mutableStateOf(false) }
     var stickToBottom by remember { mutableStateOf(true) }
@@ -484,13 +475,33 @@ private fun ChatScreen(
         android.util.Log.i("ChatSync", "backfill done before=$before guard=$guard")
     }
 
-    /** 拍完直接发：上传 → 绑本地图 → 走同一条聊天通道。 */
-    suspend fun sendCameraPhoto(bytes: ByteArray) {
-        if (busy) return
+    fun shrinkPhoto(file: File): ByteArray {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.absolutePath, bounds)
+        var sample = 1
+        while (bounds.outWidth / sample > 2048 || bounds.outHeight / sample > 2048) sample *= 2
+        val bitmap = BitmapFactory.decodeFile(
+            file.absolutePath,
+            BitmapFactory.Options().apply { inSampleSize = sample },
+        ) ?: return file.readBytes()
+        val out = java.io.ByteArrayOutputStream()
+        bitmap.compress(Bitmap.CompressFormat.JPEG, 88, out)
+        bitmap.recycle()
+        return out.toByteArray()
+    }
+
+    /** 系统相机拍回来的文件：先压到 2048px / q88 再传，原图动辄 8MB 没必要。 */
+    suspend fun sendCameraFile(file: File) {
+        if (busy) {
+            file.delete()
+            return
+        }
         busy = true
         status = "正在把照片发出去…"
         try {
+            val bytes = withContext(Dispatchers.IO) { shrinkPhoto(file) }
             val key = api.uploadMediaBytes(bytes)
+            // 先把本地图塞进缓存，气泡出现时不用等一次下载
             val drawable = withContext(Dispatchers.IO) {
                 runCatching {
                     BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
@@ -499,21 +510,39 @@ private fun ChatScreen(
             }
             drawable?.let { MediaCaches.putImage(key, it) }
             withContext(Dispatchers.IO) {
-                dao.insertPending(PendingMessageEntity(content = "[图片:$key]", clientMessageId = UUID.randomUUID().toString()))
+                dao.insertPending(
+                    PendingMessageEntity(
+                        content = "[图片:$key]",
+                        clientMessageId = UUID.randomUUID().toString(),
+                    )
+                )
             }
             status = "正看着你拍的…"
             delay(1200)
-            val clientId = UUID.randomUUID().toString()
-            api.chat("[图片:$key]", clientId)
+            api.chat("[图片:$key]", UUID.randomUUID().toString())
             status = ""
             syncEvents()
         } catch (e: Exception) {
             status = "照片没发出去：${e.message}"
         } finally {
             busy = false
+            file.delete()
         }
     }
 
+    var cameraFile by remember { mutableStateOf<File?>(null) }
+    // 拍照交给系统相机：对焦、曝光、方向、清晰度都由它管，我们只管把文件接回来
+    val takePicture = rememberLauncherForActivityResult(
+        ActivityResultContracts.TakePicture()
+    ) { ok ->
+        val file = cameraFile
+        cameraFile = null
+        if (ok && file != null) {
+            scope.launch { sendCameraFile(file) }
+        } else {
+            file?.delete()
+        }
+    }
     suspend fun sendText(text: String) {
         val trimmed = text.trim()
         if (trimmed.startsWith("/更正")) {
@@ -1418,14 +1447,21 @@ private fun ChatScreen(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             ComposerAction(Icons.Filled.PhotoCamera, "拍照", !busy) {
-                                if (ContextCompat.checkSelfPermission(
-                                        context,
-                                        Manifest.permission.CAMERA,
-                                    ) == PackageManager.PERMISSION_GRANTED
-                                ) {
-                                    showCamera = true
-                                } else {
-                                    cameraPermission.launch(Manifest.permission.CAMERA)
+                                val dir = File(context.cacheDir, "camera").apply { mkdirs() }
+                                val file = File(dir, "shot-${System.currentTimeMillis()}.jpg")
+                                cameraFile = file
+                                runCatching {
+                                    takePicture.launch(
+                                        FileProvider.getUriForFile(
+                                            context,
+                                            "${context.packageName}.fileprovider",
+                                            file,
+                                        )
+                                    )
+                                }.onFailure {
+                                    cameraFile = null
+                                    file.delete()
+                                    status = "打不开系统相机：${it.message}"
                                 }
                             }
                             ComposerAction(Icons.Filled.Photo, "图片", !busy) {
@@ -1521,15 +1557,7 @@ private fun ChatScreen(
         if (StatusPanelState.visible) {
             StatusScreen(api = api, onClose = { StatusPanelState.visible = false })
         }
-        if (showCamera) {
-            CameraCaptureOverlay(
-                onCaptured = { bytes ->
-                    showCamera = false
-                    scope.launch { sendCameraPhoto(bytes) }
-                },
-                onClose = { showCamera = false },
-            )
-        }
+
         if (showSettings) {
             SettingsScreen(
                 settings = settings,

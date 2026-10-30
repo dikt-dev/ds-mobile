@@ -51,3 +51,11 @@ adb shell am start -n com.dsmobile.app/.ChatActivity
 QQ / Termux / NapCat 手机端链路已于 2026-10-25 卸载，见 [docs/RETIREMENT.md](docs/RETIREMENT.md)。旧的 `ds-qq-client`（Python + NapCat）已从工作区删除。
 
 > 注意：`local.properties`、keystore、日志不要提交。
+
+## 仓库
+
+公开镜像：<https://github.com/dikt-dev/ds-mobile>
+
+## License
+
+Apache License 2.0，见 [LICENSE](LICENSE)。
