@@ -1007,6 +1007,40 @@ class ApiClient(
         diskCache?.put(webKey(url), o.toString().toByteArray())
     }
 
+    /** 状态页：心情 / 关系 / 记忆 / 今天 / 余额，服务端只回模糊的一句话。 */
+    suspend fun status(): StatusSnapshot? = withContext(Dispatchers.IO) {
+        runCatching {
+            val request = Request.Builder()
+                .url("$baseUrl/api/app/status")
+                .header("Authorization", "Bearer ${requireToken()}")
+                .get()
+                .build()
+            execute(request).use { response ->
+                if (!response.isSuccessful) return@runCatching null
+                val root = JSONObject(response.body?.string().orEmpty())
+                fun line(name: String): Pair<String, String> {
+                    val o = root.optJSONObject(name) ?: return "" to ""
+                    return o.optString("label") to o.optString("hint")
+                }
+                val mood = line("mood")
+                val relation = line("relation")
+                val memory = line("memory")
+                val today = line("today")
+                val bal = root.optJSONObject("balance")
+                StatusSnapshot(
+                    mood = mood.first, moodHint = mood.second,
+                    relation = relation.first, relationHint = relation.second,
+                    memory = memory.first, memoryHint = memory.second,
+                    today = today.first, todayHint = today.second,
+                    balance = bal?.optString("label").orEmpty(),
+                    balanceHint = bal?.optString("hint").orEmpty(),
+                    balanceTotal = bal?.optDouble("total", 0.0) ?: 0.0,
+                    balanceCurrency = bal?.optString("currency").orEmpty(),
+                )
+            }
+        }.getOrNull()
+    }
+
     private fun execute(request: Request) = client.newCall(request).execute()
 
     private fun requireToken(): String = token ?: throw ApiException("设备未配对")
@@ -1016,3 +1050,19 @@ class ApiClient(
         return "HTTP $code" + if (msg.isBlank()) "" else "：$msg"
     }
 }
+
+/** 状态快照：全部是给人看的一句话，没有 0-100 的数值。 */
+data class StatusSnapshot(
+    val mood: String = "",
+    val moodHint: String = "",
+    val relation: String = "",
+    val relationHint: String = "",
+    val memory: String = "",
+    val memoryHint: String = "",
+    val today: String = "",
+    val todayHint: String = "",
+    val balance: String = "",
+    val balanceHint: String = "",
+    val balanceTotal: Double = 0.0,
+    val balanceCurrency: String = "",
+)

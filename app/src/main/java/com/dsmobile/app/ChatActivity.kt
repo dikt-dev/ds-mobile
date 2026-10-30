@@ -150,6 +150,16 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.UUID
 
+/**
+ * 状态面板开关。
+ *
+ * 打开入口分散在很深的组合树里（气泡头像），层层传回调不划算；
+ * 用文件级状态，ChatApp 直接观察它。
+ */
+private object StatusPanelState {
+    var visible by mutableStateOf(false)
+}
+
 class ChatActivity : ComponentActivity() {
 
     private val notificationPermission = registerForActivityResult(
@@ -1063,7 +1073,8 @@ private fun ChatScreen(
                         )
                         .clip(CircleShape)
                         .background(Color(0xFFF0ECFF))
-                        .border(1.dp, Color(0x226C5CE7), CircleShape),
+                        .border(1.dp, Color(0x226C5CE7), CircleShape)
+                        .clickable { StatusPanelState.visible = true },
                     contentAlignment = Alignment.Center,
                 ) {
                     Image(
@@ -1431,6 +1442,9 @@ private fun ChatScreen(
             )
         }
         if (showSettings) {
+            if (StatusPanelState.visible) {
+                StatusScreen(api = api, onClose = { StatusPanelState.visible = false })
+            }
             SettingsScreen(
                 settings = settings,
                 onClose = { showSettings = false },
@@ -2715,7 +2729,10 @@ private fun AvatarBadge(isUser: Boolean, size: androidx.compose.ui.unit.Dp = 30.
             painter = painterResource(if (isUser) R.drawable.user_avatar else R.drawable.avatar),
             contentDescription = if (isUser) "我的头像" else "大肥鱼头像",
             contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize().clip(CircleShape),
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(CircleShape)
+                .clickable(enabled = !isUser) { StatusPanelState.visible = true },
         )
     }
 }
