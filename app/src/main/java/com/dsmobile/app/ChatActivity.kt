@@ -2423,7 +2423,7 @@ private fun biliMetaText(preview: BiliPreview, url: String): String = buildStrin
         preview.outline.forEach { appendLine("- $it") }
     }
     appendLine()
-    appendLine("## 字幕（完整，共 ${preview.subtitleCount} 句）")
+    appendLine("## 字幕（带时间戳，共 ${preview.subtitleCount} 句）")
     appendLine(
         preview.subtitle.ifBlank {
             if (preview.subtitleCount == 0) {
@@ -2438,6 +2438,11 @@ private fun biliMetaText(preview: BiliPreview, url: String): String = buildStrin
     appendLine(
         "附件是一张宫格图：按左上→右下顺序编号，每格左上角是格号，" +
             "下面一行是该格对应的视频时间点。格子数随视频横竖比例变化，按图上的编号读就行。",
+    )
+    appendLine(
+        "字幕的时间点和宫格的时间点是对齐的：某格看到动作，就去看同一时刻的台词；" +
+            "字幕某段空着，说明那段只有画面没有说话。" +
+            "**台词内容一律以字幕为准**，不要根据画面猜台词；画面只用来说长相、动作、场景、字幕里没有的视觉细节。",
     )
     appendLine(
         "格号和时间是给你自己定位用的，不是画面内容。" +

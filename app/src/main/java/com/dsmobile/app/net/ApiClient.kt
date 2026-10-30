@@ -70,6 +70,14 @@ private val BILI_MIXIN_TAB = intArrayOf(
 
 class ApiException(message: String) : Exception(message)
 
+/** 字幕时间戳：m:ss，超过一小时用 h:mm:ss。 */
+private fun biliClock(seconds: Double): String {
+    val total = seconds.toInt().coerceAtLeast(0)
+    val m = total / 60
+    val s = total % 60
+    return if (m >= 60) "%d:%02d:%02d".format(m / 60, m % 60, s) else "%d:%02d".format(m, s)
+}
+
 class ApiClient(
     private val baseUrl: String,
     private val token: String? = null,
@@ -636,9 +644,15 @@ class ApiClient(
                                     execute(bodyReq).use { br ->
                                         val body = JSONObject(br.body?.string().orEmpty())
                                             .optJSONArray("body")
+                                        // 带上时间戳：宫格上有每格的秒数，字幕没有时间就永远对不上，
+                                        // 模型只能整体感觉「大概是讲这个」，于是细节容易张冠李戴。
                                         val lines = (0 until (body?.length() ?: 0))
-                                            .map { body!!.optJSONObject(it).optString("content").trim() }
-                                            .filter { it.isNotEmpty() }
+                                            .mapNotNull { idx ->
+                                                val item = body!!.optJSONObject(idx)
+                                                val text = item.optString("content").trim()
+                                                if (text.isEmpty()) null
+                                                else biliClock(item.optDouble("from", 0.0)) + " " + text
+                                            }
                                         subtitleCount = lines.size
                                         subtitle = lines.joinToString("\n")
                                     }
