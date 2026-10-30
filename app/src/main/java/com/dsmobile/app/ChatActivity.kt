@@ -490,55 +490,28 @@ private fun ChatScreen(
         return out.toByteArray()
     }
 
-    /** 系统相机拍回来的文件：先压到 2048px / q88 再传，原图动辄 8MB 没必要。 */
-    suspend fun sendCameraFile(file: File) {
-        if (busy) {
-            file.delete()
-            return
-        }
-        busy = true
-        status = "正在把照片发出去…"
-        try {
-            val bytes = withContext(Dispatchers.IO) { shrinkPhoto(file) }
-            val key = api.uploadMediaBytes(bytes)
-            // 先把本地图塞进缓存，气泡出现时不用等一次下载
-            val drawable = withContext(Dispatchers.IO) {
-                runCatching {
-                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                        ?.let { BitmapDrawable(context.resources, it) }
-                }.getOrNull()
-            }
-            drawable?.let { MediaCaches.putImage(key, it) }
-            withContext(Dispatchers.IO) {
-                dao.insertPending(
-                    PendingMessageEntity(
-                        content = "[图片:$key]",
-                        clientMessageId = UUID.randomUUID().toString(),
-                    )
-                )
-            }
-            status = "正看着你拍的…"
-            delay(1200)
-            api.chat("[图片:$key]", UUID.randomUUID().toString())
-            status = ""
-            syncEvents()
-        } catch (e: Exception) {
-            status = "照片没发出去：${e.message}"
-        } finally {
-            busy = false
-            file.delete()
-        }
-    }
-
     var cameraFile by remember { mutableStateOf<File?>(null) }
+    var cameraUri by remember { mutableStateOf<Uri?>(null) }
     // 拍照交给系统相机：对焦、曝光、方向、清晰度都由它管，我们只管把文件接回来
     val takePicture = rememberLauncherForActivityResult(
         ActivityResultContracts.TakePicture()
     ) { ok ->
+        val uri = cameraUri
         val file = cameraFile
+        cameraUri = null
         cameraFile = null
-        if (ok && file != null) {
-            scope.launch { sendCameraFile(file) }
+        if (ok && uri != null) {
+            // 和相册选的图走同一条路：先挂在输入框上方当草稿，你确认了再发
+            scope.launch {
+                draft = DraftAttachment(
+                    uri = uri,
+                    kind = "image",
+                    name = file?.name ?: "拍照.jpg",
+                    mime = "image/jpeg",
+                    size = withContext(Dispatchers.IO) { file?.length() ?: 0L },
+                    preview = withContext(Dispatchers.IO) { loadDraftPreview(context, uri) },
+                )
+            }
         } else {
             file?.delete()
         }
@@ -1449,16 +1422,16 @@ private fun ChatScreen(
                             ComposerAction(Icons.Filled.PhotoCamera, "拍照", !busy) {
                                 val dir = File(context.cacheDir, "camera").apply { mkdirs() }
                                 val file = File(dir, "shot-${System.currentTimeMillis()}.jpg")
+                                // 先落一个空文件：部分相机 App 直接往 uri 里写，文件不存在会失败
+                                runCatching { file.createNewFile() }
+                                val uri = FileProvider.getUriForFile(
+                                    context,
+                                    "${context.packageName}.fileprovider",
+                                    file,
+                                )
                                 cameraFile = file
-                                runCatching {
-                                    takePicture.launch(
-                                        FileProvider.getUriForFile(
-                                            context,
-                                            "${context.packageName}.fileprovider",
-                                            file,
-                                        )
-                                    )
-                                }.onFailure {
+                                cameraUri = uri
+                                runCatching { takePicture.launch(uri) }.onFailure {
                                     cameraFile = null
                                     file.delete()
                                     status = "打不开系统相机：${it.message}"
@@ -2194,7 +2167,9 @@ private fun SegmentedMessage(
         verticalArrangement = Arrangement.spacedBy(7.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            AvatarBadge(isUser = false, size = 26.dp)
+            // 这里是她的「一组话」的开头，头像要和我这边一样大；
+            // 之前用的是 26dp 的小标，和我那侧的 50dp 摆在一起明显一大一小。
+            AvatarBadge(isUser = false, size = 50.dp)
             Spacer(Modifier.width(6.dp))
             Text(
                 label,
