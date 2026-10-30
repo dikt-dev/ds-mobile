@@ -166,8 +166,9 @@ object TtsManager {
     private fun trimCache(context: Context) {
         val dir = File(context.cacheDir, "tts-cache")
         val files = dir.listFiles()?.filter { it.extension == "mp3" } ?: return
-        if (files.size <= 30) return
-        files.sortedBy { it.lastModified() }.take(files.size - 30).forEach { it.delete() }
+        // 一句语音几十 KB，留 300 条也才十几 MB；配额有 1GB，没必要抠
+        if (files.size <= 300) return
+        files.sortedBy { it.lastModified() }.take(files.size - 300).forEach { it.delete() }
     }
 
     private suspend fun requestBytes(

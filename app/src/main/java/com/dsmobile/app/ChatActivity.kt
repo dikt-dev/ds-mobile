@@ -1084,7 +1084,7 @@ private fun ChatScreen(
             ) {
                 Box(
                     modifier = Modifier
-                        .size(42.dp)
+                        .size(48.dp)
                         .shadow(
                             8.dp,
                             CircleShape,
@@ -1461,10 +1461,10 @@ private fun ChatScreen(
                 },
             )
         }
+        if (StatusPanelState.visible) {
+            StatusScreen(api = api, onClose = { StatusPanelState.visible = false })
+        }
         if (showSettings) {
-            if (StatusPanelState.visible) {
-                StatusScreen(api = api, onClose = { StatusPanelState.visible = false })
-            }
             SettingsScreen(
                 settings = settings,
                 onClose = { showSettings = false },
@@ -2100,8 +2100,8 @@ private fun SegmentedMessage(
         verticalArrangement = Arrangement.spacedBy(7.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            AvatarBadge(isUser = false, size = 18.dp)
-            Spacer(Modifier.width(5.dp))
+            AvatarBadge(isUser = false, size = 22.dp)
+            Spacer(Modifier.width(6.dp))
             Text(
                 label,
                 style = MaterialTheme.typography.labelSmall,
@@ -2121,12 +2121,8 @@ private fun SegmentedMessage(
                     Surface(
                         modifier = Modifier
                             .widthIn(max = 316.dp)
-                            .shadow(
-                                9.dp,
-                                bubbleShape,
-                                spotColor = Color(0x1F6C5CE7),
-                                ambientColor = Color(0x0F000000),
-                            ),
+                            .shadow(2.dp, bubbleShape, spotColor = Color(0x1F4C3F8F), ambientColor = Color.Transparent)
+                    .shadow(14.dp, bubbleShape, spotColor = Color(0x1F6C5CE7), ambientColor = Color(0x0A000000)),
                         shape = bubbleShape,
                         color = Color.White,
                         border = BorderStroke(1.dp, Color(0x126C5CE7)),
@@ -2574,12 +2570,8 @@ private fun StreamingBubble(text: String, onReveal: () -> Unit) {
                         Surface(
                             modifier = Modifier
                                 .widthIn(max = 316.dp)
-                                .shadow(
-                                    9.dp,
-                                    bubbleShape,
-                                    spotColor = Color(0x1F6C5CE7),
-                                    ambientColor = Color(0x0F000000),
-                                ),
+                                .shadow(2.dp, bubbleShape, spotColor = Color(0x1F4C3F8F), ambientColor = Color.Transparent)
+                    .shadow(14.dp, bubbleShape, spotColor = Color(0x1F6C5CE7), ambientColor = Color(0x0A000000)),
                             shape = bubbleShape,
                             color = Color.White,
                             border = BorderStroke(1.dp, Color(0x126C5CE7)),
@@ -2680,12 +2672,8 @@ private fun PendingBubble(
             Surface(
                 modifier = Modifier
                     .widthIn(max = 316.dp)
-                    .shadow(
-                        9.dp,
-                        bubbleShape,
-                        spotColor = Color(0x2A6C5CE7),
-                        ambientColor = Color(0x0F000000),
-                    ),
+                    .shadow(2.dp, bubbleShape, spotColor = Color(0x1F4C3F8F), ambientColor = Color.Transparent)
+                    .shadow(14.dp, bubbleShape, spotColor = Color(0x2A6C5CE7), ambientColor = Color(0x0A000000)),
                 shape = bubbleShape,
                 color = Color(0xFFEDE7FF),
                 border = BorderStroke(1.dp, Color(0x226C5CE7)),
@@ -2736,7 +2724,7 @@ private fun PendingBubble(
 
 /** 头像：AI 用设定图，用户用一张占位图；尺寸可缩到 18dp 放小标题行。 */
 @Composable
-private fun AvatarBadge(isUser: Boolean, size: androidx.compose.ui.unit.Dp = 30.dp) {
+private fun AvatarBadge(isUser: Boolean, size: androidx.compose.ui.unit.Dp = 38.dp) {
     Box(
         modifier = Modifier
             .size(size)
@@ -2918,15 +2906,31 @@ private fun MessageBubble(
             Surface(
                 modifier = Modifier
                     .widthIn(max = 316.dp)
+                    // 两层阴影：近层贴着纸面给厚度，远层往四周散给高度。
+                    // 原来只有一层 9dp，既不像贴着也不像浮着，看起来就是张贴纸。
+                    .shadow(2.dp, bubbleShape, spotColor = Color(0x1F4C3F8F), ambientColor = Color.Transparent)
                     .shadow(
-                        9.dp,
+                        14.dp,
                         bubbleShape,
-                        spotColor = if (isUser) Color(0x2A6C5CE7) else Color(0x1F6C5CE7),
-                        ambientColor = Color(0x0F000000),
+                        spotColor = if (isUser) Color(0x1A6C5CE7) else Color(0x146C5CE7),
+                        ambientColor = Color(0x0A000000),
+                    )
+                    // 上到下 6% 的明度差：肉眼说不出，但气泡会变成受光的曲面
+                    .background(
+                        Brush.verticalGradient(
+                            if (isUser) listOf(Color(0xFFF4EFFF), Color(0xFFE4DAFF))
+                            else listOf(Color(0xFFFFFFFF), Color(0xFFF7F5FF)),
+                        ),
+                        bubbleShape,
+                    )
+                    // 上亮下暗的描边 = 光从左上来
+                    .border(
+                        1.dp,
+                        Brush.verticalGradient(listOf(Color(0x66FFFFFF), Color(0x146C5CE7))),
+                        bubbleShape,
                     ),
                 shape = bubbleShape,
-                color = if (isUser) Color(0xFFEDE7FF) else Color.White,
-                border = if (isUser) BorderStroke(1.dp, Color(0x226C5CE7)) else BorderStroke(1.dp, Color(0x126C5CE7)),
+                color = Color.Transparent,
                 shadowElevation = 0.dp,
             ) {
                 Column(
@@ -2991,7 +2995,12 @@ private fun MediaBubble(api: ApiClient, key: String, isGif: Boolean) {
 @Composable
 private fun VideoBubble(api: ApiClient, key: String) {
     val context = LocalContext.current
-    val player = remember(key) { MediaCaches.player(context, api, key) }
+    // 本地有缓存就放本地，没有先走网络流；同时后台把整段视频落地，下次直接命中。
+    val cachedFile = remember(key) { api.cachedMediaFile(key) }
+    val player = remember(key, cachedFile) { MediaCaches.player(context, api, key, cachedFile) }
+    LaunchedEffect(key) {
+        if (cachedFile == null) runCatching { api.mediaFile(key) }
+    }
     DisposableEffect(player) {
         onDispose { player.pause() }
     }

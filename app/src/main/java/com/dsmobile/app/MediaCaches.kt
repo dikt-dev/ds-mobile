@@ -8,6 +8,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import java.io.File
 import com.dsmobile.app.net.ApiClient
 import com.dsmobile.app.net.BiliPreview
 import com.dsmobile.app.net.WebPreview
@@ -63,8 +64,13 @@ object MediaCaches {
     fun biliFrame(url: String): Bitmap? = biliFrames.get(url)
     fun putBiliFrame(url: String, bitmap: Bitmap) = biliFrames.put(url, bitmap)
 
-    fun player(context: Context, api: ApiClient, key: String): ExoPlayer =
-        players.getOrPut(key) {
+    /**
+     * 视频播放器。给了 localFile 就直接放本地缓存，省一次跨网下载；
+     * 没有就走网络流（边下边播），并在后台落地。
+     */
+    fun player(context: Context, api: ApiClient, key: String, localFile: File? = null): ExoPlayer {
+        val cacheKey = if (localFile != null) "$key@file" else key
+        return players.getOrPut(cacheKey) {
             val sourceFactory = DefaultMediaSourceFactory(
                 DefaultHttpDataSource.Factory().setDefaultRequestProperties(api.mediaHeaders())
             )
@@ -72,10 +78,11 @@ object MediaCaches {
                 .setMediaSourceFactory(sourceFactory)
                 .build()
                 .apply {
-                    setMediaItem(MediaItem.fromUri(api.mediaUrl(key)))
+                    setMediaItem(MediaItem.fromUri(localFile?.toURI()?.toString() ?: api.mediaUrl(key)))
                     prepare()
                 }
         }
+    }
 
     fun clear() {
         images.evictAll()

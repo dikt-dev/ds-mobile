@@ -7,10 +7,12 @@ import java.security.MessageDigest
 class MediaDiskCache(
     private val dir: File,
     private val maxBytes: Long = 1024L * 1024 * 1024,
-    private val maxFiles: Int = 1000,
+    private val maxFiles: Int = 5000,
 ) {
     init {
         runCatching { dir.mkdirs() }
+        // 启动时顺手回收一次：只在上传时 trim 的话，不常用缓存的人永远清不掉老文件
+        runCatching { Thread { runCatching { trim() } }.start() }
     }
 
     fun get(key: String): ByteArray? {

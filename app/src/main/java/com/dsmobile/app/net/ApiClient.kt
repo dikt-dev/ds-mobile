@@ -85,6 +85,8 @@ class ApiClient(
     private val biliCookie: String = "",
     cacheDir: File? = null,
 ) {
+    /** 构造参数不是 val，方法体里访问不到，提一个属性出来给视频文件缓存用。 */
+    private val cacheRoot: File? = cacheDir
     private val diskCache = cacheDir?.let { MediaDiskCache(it) }
     private val jsonType = "application/json; charset=utf-8".toMediaType()
     private val client = OkHttpClient.Builder()
@@ -902,6 +904,38 @@ class ApiClient(
 
     fun mediaUrl(key: String): String =
         "$baseUrl/api/app/media?key=${java.net.URLEncoder.encode(key, "UTF-8")}"
+
+    /**
+     * 视频落地成文件：第二次看同一条直接读本地，不再重新下载。
+     *
+     * App 给了 1GB 缓存配额，视频是最占流量也最值得缓存的东西——
+     * 不落地的话每划回来一次就要重下一遍。
+     */
+    /** 同步看一眼本地有没有这个视频文件（不下载），用于决定播放器起哪种源。 */
+    fun cachedMediaFile(key: String): File? {
+        val root = cacheRoot ?: return null
+        val safe = key.replace(Regex("[^A-Za-z0-9._-]"), "_")
+        val target = File(File(root, "media-files"), safe)
+        return if (target.isFile && target.length() > 0L) target else null
+    }
+
+    suspend fun mediaFile(key: String): File? = withContext(Dispatchers.IO) {
+        val root = cacheRoot ?: return@withContext null
+        val safe = key.replace(Regex("[^A-Za-z0-9._-]"), "_")
+        val target = File(File(root, "media-files"), safe)
+        if (target.isFile && target.length() > 0L) return@withContext target
+        val bytes = runCatching { mediaBytes(key) }.getOrNull() ?: return@withContext null
+        runCatching {
+            target.parentFile?.mkdirs()
+            val tmp = File(target.parentFile, "${target.name}.tmp")
+            tmp.writeBytes(bytes)
+            if (!tmp.renameTo(target)) {
+                target.writeBytes(bytes)
+                tmp.delete()
+            }
+            target
+        }.getOrNull()
+    }
 
     suspend fun mediaBytes(key: String): ByteArray = withContext(Dispatchers.IO) {
         val cacheKey = "media:$key"
