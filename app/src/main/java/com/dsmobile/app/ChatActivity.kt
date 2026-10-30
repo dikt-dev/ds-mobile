@@ -543,9 +543,13 @@ private fun ChatScreen(
                 if (dur < 150.0) {
                     emptyList()
                 } else {
-                    // 不再花一轮模型调用去决定看哪里（那一步要 6 秒）。
-                    // 取 1/3、2/3 处，并对齐到最近的一句台词：说话的地方就是有事发生的地方。
-                    val times = pickDetailTimes(dur, bili.subtitle)
+                    // 纯文本规划：只发标题 + 字幕（不带图），让模型挑 1-2 个值得细看的时间点。
+                    // 比看宫格规划省 5 秒，比盲取 1/3、2/3 聪明；它不听话就退回盲取。
+                    val planned = runCatching {
+                        parseLookTimes(api.chat(textPlanPrompt(bili, dur), null, record = false))
+                    }.getOrDefault(emptyList())
+                    android.util.Log.i("BiliAi", "text plan times=" + planned.joinToString())
+                    val times = planned.ifEmpty { pickDetailTimes(dur, bili.subtitle) }
                     android.util.Log.i("BiliAi", "detail times=" + times.joinToString())
                     if (times.isEmpty()) emptyList()
                     else BiliFrames.detailFrames(usingPlayUrl, context.cacheDir, times, bili.bvid)
@@ -3161,4 +3165,22 @@ private fun pickDetailTimes(durationSec: Double, subtitle: String): List<Double>
     return targets.map { target ->
         marks.minByOrNull { kotlin.math.abs(it - target) } ?: target
     }.distinct().sorted()
+}
+
+/** 纯文本规划请求：标题 + 时长 + 字幕，不附图。 */
+private fun textPlanPrompt(preview: BiliPreview, durationSec: Double): String {
+    val subtitle = preview.subtitle.lineSequence().take(160).joinToString("\n")
+    return buildString {
+        appendLine("【只做规划，不要回答用户，也不要输出任何解释】")
+        appendLine(
+            "下面是视频的字幕（带时间）。挑 1–2 个最值得看清画面证据的时刻" +
+                "（关键动作、表情、画面上的文字），只输出一行：LOOK: 2:03,3:36。",
+        )
+        appendLine("如果整条视频没有任何需要看清的地方，只输出：OK。")
+        appendLine()
+        appendLine("标题：" + preview.title)
+        appendLine("时长：" + durationSec.toInt() + " 秒")
+        appendLine("字幕：")
+        appendLine(subtitle.ifBlank { "（无字幕）" })
+    }
 }

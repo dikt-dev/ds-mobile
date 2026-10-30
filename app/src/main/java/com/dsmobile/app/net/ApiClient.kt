@@ -284,13 +284,19 @@ class ApiClient(
         }
     }
 
-    suspend fun chat(text: String, clientMessageId: String? = null): String = withContext(Dispatchers.IO) {
+    suspend fun chat(
+        text: String,
+        clientMessageId: String? = null,
+        /** false = 只问不记（规划轮之类，不写 D1、不进记忆）。 */
+        record: Boolean = true,
+    ): String = withContext(Dispatchers.IO) {
         val messages = JSONArray().put(JSONObject().put("role", "user").put("content", text))
         val body = JSONObject()
             .put("messages", messages)
             .put("stream", false)
             .put("inject_history", true)
         if (!clientMessageId.isNullOrBlank()) body.put("client_message_id", clientMessageId)
+        if (!record) body.put("record", false)
         val bodyText = body.toString()
         val request = Request.Builder()
             .url("$baseUrl/v1/chat/completions")
