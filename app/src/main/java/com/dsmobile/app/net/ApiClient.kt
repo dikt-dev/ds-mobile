@@ -902,6 +902,22 @@ class ApiClient(
         }
     }
 
+    /** 拍照后直接发：不用落临时文件、不用 FileProvider，少一层权限问题。 */
+    suspend fun uploadMediaBytes(bytes: ByteArray, mime: String = "image/jpeg"): String =
+        withContext(Dispatchers.IO) {
+            if (bytes.size > 60L * 1024 * 1024) throw ApiException("文件超过 60MB")
+            val request = Request.Builder()
+                .url("$baseUrl/api/app/upload/video")
+                .header("Authorization", "Bearer ${requireToken()}")
+                .post(bytes.toRequestBody(mime.toMediaTypeOrNull()))
+                .build()
+            execute(request).use { response ->
+                val text = response.body?.string().orEmpty()
+                if (!response.isSuccessful) throw ApiException(errorText(response.code, text))
+                JSONObject(text).optString("key").ifBlank { throw ApiException("上传响应缺少 key") }
+            }
+        }
+
     fun mediaUrl(key: String): String =
         "$baseUrl/api/app/media?key=${java.net.URLEncoder.encode(key, "UTF-8")}"
 

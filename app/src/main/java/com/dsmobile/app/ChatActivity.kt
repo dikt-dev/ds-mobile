@@ -132,6 +132,7 @@ import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Photo
+import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Videocam
@@ -389,6 +390,16 @@ private fun ChatScreen(
     var status by remember { mutableStateOf("") }
     var streamingText by remember { mutableStateOf("") }
     var showSettings by remember { mutableStateOf(false) }
+    var showCamera by remember { mutableStateOf(false) }
+    val cameraPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            showCamera = true
+        } else {
+            status = "相机权限没给，拍不了照"
+        }
+    }
     var initialScrollDone by remember { mutableStateOf(false) }
     var historyReady by remember { mutableStateOf(false) }
     var stickToBottom by remember { mutableStateOf(true) }
@@ -471,6 +482,36 @@ private fun ChatScreen(
             guard++
         }
         android.util.Log.i("ChatSync", "backfill done before=$before guard=$guard")
+    }
+
+    /** 拍完直接发：上传 → 绑本地图 → 走同一条聊天通道。 */
+    suspend fun sendCameraPhoto(bytes: ByteArray) {
+        if (busy) return
+        busy = true
+        status = "正在把照片发出去…"
+        try {
+            val key = api.uploadMediaBytes(bytes)
+            val drawable = withContext(Dispatchers.IO) {
+                runCatching {
+                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                        ?.let { BitmapDrawable(context.resources, it) }
+                }.getOrNull()
+            }
+            drawable?.let { MediaCaches.putImage(key, it) }
+            withContext(Dispatchers.IO) {
+                dao.insertPending(PendingMessageEntity(content = "[图片:$key]", clientMessageId = UUID.randomUUID().toString()))
+            }
+            status = "正看着你拍的…"
+            delay(1200)
+            val clientId = UUID.randomUUID().toString()
+            api.chat("[图片:$key]", clientId)
+            status = ""
+            syncEvents()
+        } catch (e: Exception) {
+            status = "照片没发出去：${e.message}"
+        } finally {
+            busy = false
+        }
     }
 
     suspend fun sendText(text: String) {
@@ -1376,6 +1417,17 @@ private fun ChatScreen(
                             horizontalArrangement = Arrangement.SpaceEvenly,
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
+                            ComposerAction(Icons.Filled.PhotoCamera, "拍照", !busy) {
+                                if (ContextCompat.checkSelfPermission(
+                                        context,
+                                        Manifest.permission.CAMERA,
+                                    ) == PackageManager.PERMISSION_GRANTED
+                                ) {
+                                    showCamera = true
+                                } else {
+                                    cameraPermission.launch(Manifest.permission.CAMERA)
+                                }
+                            }
                             ComposerAction(Icons.Filled.Photo, "图片", !busy) {
                                 imagePicker.launch(
                                     PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
@@ -1468,6 +1520,15 @@ private fun ChatScreen(
         }
         if (StatusPanelState.visible) {
             StatusScreen(api = api, onClose = { StatusPanelState.visible = false })
+        }
+        if (showCamera) {
+            CameraCaptureOverlay(
+                onCaptured = { bytes ->
+                    showCamera = false
+                    scope.launch { sendCameraPhoto(bytes) }
+                },
+                onClose = { showCamera = false },
+            )
         }
         if (showSettings) {
             SettingsScreen(
