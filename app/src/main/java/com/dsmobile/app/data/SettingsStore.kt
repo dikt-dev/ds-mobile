@@ -48,6 +48,17 @@ class SettingsStore(context: Context) {
         get() = prefs.getLong("last_event_id", 0L)
         set(value) = prefs.edit().putLong("last_event_id", value).apply()
 
+    /**
+     * 后台常驻（前台服务）：**默认关闭**（2026-10-31 改）。
+     *
+     * 开着才有「锁屏也能收到她消息 + 主动消息通知」；代价是一条常驻通知、
+     * 每 5 秒一次 /api/app/events 轮询（一天约 1.7 万次 D1 读）和一点电。
+     * 关着时 App 只在打开期间收消息，最省电。
+     */
+    var keepAliveEnabled: Boolean
+        get() = prefs.getBoolean("keep_alive_enabled", false)
+        set(value) = prefs.edit().putBoolean("keep_alive_enabled", value).apply()
+
     var azureKey: String
         get() = prefs.getString("azure_key", "") ?: ""
         set(value) = prefs.edit().putString("azure_key", value.trim()).apply()

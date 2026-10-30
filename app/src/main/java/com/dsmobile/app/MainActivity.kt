@@ -175,7 +175,7 @@ class MainActivity : ComponentActivity() {
                     }
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        "每 3 秒检查一次 Worker 健康接口，划掉后台也要活着。",
+                        "常驻时：每 5 秒拉一次消息、每 5 分钟报心跳、每 30 秒拉一次主动消息。默认关闭。",
                         style = MaterialTheme.typography.bodySmall,
                         color = Ds.colors.inkTertiary,
                     )
@@ -190,14 +190,13 @@ class MainActivity : ComponentActivity() {
                         },
                     )
                     Spacer(Modifier.height(DsSpace.sm))
+                    // 手动开关与设置里的「后台常驻」是同一个开关，避免两处状态打架
                     DsButton(
                         "启动后台服务",
                         enabled = !running,
                         onClick = {
-                            ContextCompat.startForegroundService(
-                                this@MainActivity,
-                                Intent(this@MainActivity, KeepAliveService::class.java),
-                            )
+                            SettingsStore(this@MainActivity).keepAliveEnabled = true
+                            KeepAliveService.start(this@MainActivity)
                         },
                     )
                     Spacer(Modifier.height(DsSpace.xs))
@@ -205,7 +204,8 @@ class MainActivity : ComponentActivity() {
                         "停止后台服务",
                         enabled = running,
                         onClick = {
-                            stopService(Intent(this@MainActivity, KeepAliveService::class.java))
+                            SettingsStore(this@MainActivity).keepAliveEnabled = false
+                            KeepAliveService.stop(this@MainActivity)
                         },
                     )
                     DsOutlineButton(

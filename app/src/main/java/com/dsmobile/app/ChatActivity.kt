@@ -963,9 +963,12 @@ private fun ChatScreen(
         }
     }
 
-    LaunchedEffect(token) {
-        if (token.isNotBlank()) {
+    // 后台常驻默认关闭：只有设置里开了才常驻（省电、少一条常驻通知）
+    LaunchedEffect(token, settings.keepAliveEnabled) {
+        if (token.isNotBlank() && settings.keepAliveEnabled) {
             com.dsmobile.app.service.KeepAliveService.start(context)
+        } else {
+            com.dsmobile.app.service.KeepAliveService.stop(context)
         }
     }
 

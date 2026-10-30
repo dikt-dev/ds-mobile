@@ -55,6 +55,8 @@ import com.dsmobile.app.ui.components.DsOutlineButton
 import com.dsmobile.app.ui.components.DsSectionLabel
 import com.dsmobile.app.ui.components.DsSegmented
 import com.dsmobile.app.ui.components.DsSettingRow
+import com.dsmobile.app.ui.components.DsSwitchRow
+import com.dsmobile.app.service.KeepAliveService
 import com.dsmobile.app.ui.components.DsTextButton
 import com.dsmobile.app.ui.theme.Ds
 import com.dsmobile.app.ui.theme.DsSpace
@@ -92,6 +94,8 @@ fun SettingsScreen(
     var baseUrl by remember { mutableStateOf(settings.baseUrl) }
     var previewing by remember { mutableStateOf(false) }
     var previewMsg by remember { mutableStateOf("") }
+    // 后台常驻是即时生效的（不是保存才生效），因为它控制一个正在跑的服务
+    var keepAliveOn by remember { mutableStateOf(settings.keepAliveEnabled) }
     // 清 Token 是不可逆操作，二次确认一次，避免在设置里滑一下就掉登录
     var confirmAction by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
@@ -327,6 +331,21 @@ fun SettingsScreen(
                     Column {
                         DsSectionLabel("通知")
                         DsCard(contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
+                            DsSwitchRow(
+                                title = "后台常驻",
+                                checked = keepAliveOn,
+                                subtitle = if (keepAliveOn) {
+                                    "锁屏也能收到她的消息；代价是一条常驻通知，每 5 秒拉一次消息"
+                                } else {
+                                    "只在打开 App 时收消息，最省电（默认）"
+                                },
+                                onCheckedChange = { on ->
+                                    keepAliveOn = on
+                                    settings.keepAliveEnabled = on
+                                    if (on) KeepAliveService.start(context) else KeepAliveService.stop(context)
+                                },
+                            )
+                            DsDivider(Modifier.padding(start = 16.dp))
                             DsSettingRow(
                                 title = "系统通知设置",
                                 subtitle = "她主动找你的时候，能不能弹出来",

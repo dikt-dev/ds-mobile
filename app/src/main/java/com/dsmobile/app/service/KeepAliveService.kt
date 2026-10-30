@@ -30,11 +30,6 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import java.net.HttpURLConnection
-import java.net.URL
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 /**
  * 阶段 0 的前台服务 spike：
@@ -53,7 +48,6 @@ class KeepAliveService : Service() {
         private const val NOTIFICATION_ID = 1001
         private const val MESSAGE_NOTIFICATION_ID = 2001
         private const val MESSAGE_NOTIFICATION_TAG = "ds_message"
-        private const val HEALTH_URL = "https://fae.us.ci/api/health"
 
         @Volatile
         private var unreadCount: Int = 0
@@ -88,11 +82,38 @@ class KeepAliveService : Service() {
         var lastTime: Long = 0L
             private set
 
+        /**
+         * 启动后台常驻。**默认关闭**（设置 → 通知 → 后台常驻）。
+         * 关闭时直接返回：App 只在打开期间收消息，没有任何常驻开销。
+         */
         fun start(context: Context) {
+            if (!SettingsStore(context).keepAliveEnabled) {
+                Log.i(TAG, "keep-alive disabled (setting off), skip start")
+                return
+            }
             ContextCompat.startForegroundService(
                 context,
                 Intent(context, KeepAliveService::class.java),
             )
+        }
+
+        /**
+         * 停止后台常驻（设置里关掉开关时调用）。
+         *
+         * 顺手报一次 `background-off` 心跳：服务端据此知道「是用户主动关的」，
+         * 而不是「客户端死了」，避免 3 小时后收到一条「通道掉线」的运维提醒。
+         */
+        fun stop(context: Context) {
+            context.stopService(Intent(context, KeepAliveService::class.java))
+            val s = SettingsStore(context)
+            val token = s.token
+            if (token.isNullOrBlank()) return
+            Thread {
+                runCatching {
+                    val api = ApiClient(s.baseUrl, token, s.biliSessdata, s.biliCookie, java.io.File(context.cacheDir, "api-media"))
+                    kotlinx.coroutines.runBlocking { api.heartbeat("ds-mobile/background-off") }
+                }
+            }.start()
         }
     }
 
@@ -349,24 +370,6 @@ class KeepAliveService : Service() {
         }
     }
 
-    private fun checkHealth(): String {
-        val connection = (URL(HEALTH_URL).openConnection() as HttpURLConnection).apply {
-            connectTimeout = 5_000
-            readTimeout = 5_000
-            requestMethod = "GET"
-            setRequestProperty("User-Agent", "DS-Mobile/0.1")
-        }
-        return try {
-            val code = connection.responseCode
-            if (code in 200..299) {
-                "OK HTTP $code · ${SimpleDateFormat("HH:mm:ss", Locale.CHINA).format(Date())}"
-            } else {
-                "HTTP $code"
-            }
-        } finally {
-            connection.disconnect()
-        }
-    }
 
     private fun createNotificationChannel() {
         val manager = getSystemService(NotificationManager::class.java)
