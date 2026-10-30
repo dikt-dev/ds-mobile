@@ -142,6 +142,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -515,7 +517,23 @@ private fun ChatScreen(
             ""
         }
         val usingPlayUrl = livePlayUrl.ifBlank { bili?.playUrl.orEmpty() }
-        val frames = if (bili != null && bili.storyboardUrl.isNotBlank()) {
+        val biliDuration = if (bili != null) {
+            if (bili.duration > 0) bili.duration.toDouble()
+            else (bili.storyboardIndex.lastOrNull() ?: 0.0)
+        } else {
+            0.0
+        }
+        val longVideo = bili != null && biliDuration >= 150.0 && usingPlayUrl.isNotBlank()
+        // 规划轮只吃文字，和抽宫格并行跑：它的耗时被宫格的 4 秒吃掉，不再额外加延迟。
+        val paired = coroutineScope {
+            val planDeferred: kotlinx.coroutines.Deferred<List<Double>>? = if (longVideo) async {
+                runCatching {
+                    parseLookTimes(api.chat(textPlanPrompt(bili!!, biliDuration), null, record = false))
+                }.getOrDefault(emptyList<Double>())
+            } else {
+                null
+            }
+            val grids = if (bili != null && bili.storyboardUrl.isNotBlank()) {
             runCatching {
                 BiliFrames.loadAiFrames(
                     storyboardUrl = bili.storyboardUrl,
@@ -530,26 +548,24 @@ private fun ChatScreen(
                     dumpDebug = (context.applicationInfo.flags and
                         android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0,
                 )
-            }.getOrDefault(emptyList())
-        } else {
-            emptyList()
+                }.getOrDefault(emptyList())
+            } else {
+                emptyList()
+            }
+            grids to (planDeferred?.await() ?: emptyList())
         }
-        // 长视频：先让模型报出「哪里看不清」，再从本地缓存的 MP4 里补原始分辨率帧。
+        val frames = paired.first
+        val plannedTimes = paired.second
+        // 长视频：从本地缓存的 MP4 里补原始分辨率帧。
         // 规划轮 record=false，不写 D1、不进记忆，用户在界面上也看不到。
         val detailFrames = if (frames.isNotEmpty() && bili != null && usingPlayUrl.isNotBlank()) {
             runCatching {
-                val dur = if (bili.duration > 0) bili.duration.toDouble()
-                else (bili.storyboardIndex.lastOrNull() ?: 0.0)
+                val dur = biliDuration
                 if (dur < 150.0) {
                     emptyList()
                 } else {
-                    // 纯文本规划：只发标题 + 字幕（不带图），让模型挑 1-2 个值得细看的时间点。
-                    // 比看宫格规划省 5 秒，比盲取 1/3、2/3 聪明；它不听话就退回盲取。
-                    val planned = runCatching {
-                        parseLookTimes(api.chat(textPlanPrompt(bili, dur), null, record = false))
-                    }.getOrDefault(emptyList())
-                    android.util.Log.i("BiliAi", "text plan times=" + planned.joinToString())
-                    val times = planned.ifEmpty { pickDetailTimes(dur, bili.subtitle) }
+                    android.util.Log.i("BiliAi", "text plan times=" + plannedTimes.joinToString())
+                    val times = plannedTimes.ifEmpty { pickDetailTimes(dur, bili.subtitle) }
                     android.util.Log.i("BiliAi", "detail times=" + times.joinToString())
                     if (times.isEmpty()) emptyList()
                     else BiliFrames.detailFrames(usingPlayUrl, context.cacheDir, times, bili.bvid)
