@@ -310,11 +310,15 @@ object BiliFrames {
                 .get()
                 .build()
             client.newCall(request).execute().use { resp ->
-                if (!resp.isSuccessful) return null
+                if (!resp.isSuccessful) {
+                    Log.w("BiliFrames", "mp4 download HTTP ${resp.code}")
+                    return null
+                }
                 val body = resp.body ?: return null
                 body.byteStream().use { input ->
                     file.outputStream().use { out -> input.copyTo(out, 256 * 1024) }
                 }
+                Log.i("BiliFrames", "mp4 downloaded ${file.length() / 1024 / 1024}MB")
             }
         }
         if (!file.exists() || file.length() < 1_000_000L) return null

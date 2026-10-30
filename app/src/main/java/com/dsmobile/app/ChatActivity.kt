@@ -508,6 +508,13 @@ private fun ChatScreen(
         val biliCookie = settings.biliCookie.ifBlank {
             if (settings.biliSessdata.isBlank()) "" else "SESSDATA=${settings.biliSessdata}"
         }
+        // 缓存里的 playUrl 会过期（deadline/sign），发之前现取一条
+        val livePlayUrl = if (bili != null && bili.bvid.isNotBlank() && bili.cid > 0) {
+            runCatching { api.freshPlayUrl(bili.bvid, bili.cid, biliCookie) }.getOrDefault("")
+        } else {
+            ""
+        }
+        val usingPlayUrl = livePlayUrl.ifBlank { bili?.playUrl.orEmpty() }
         val frames = if (bili != null && bili.storyboardUrl.isNotBlank()) {
             runCatching {
                 BiliFrames.loadAiFrames(
@@ -518,7 +525,7 @@ private fun ChatScreen(
                     cacheDir = context.cacheDir,
                     timestamps = bili.storyboardIndex,
                     spriteUrls = bili.storyboardUrls,
-                    playUrl = bili.playUrl,
+                    playUrl = usingPlayUrl,
                     cacheKey = bili.bvid,
                     dumpDebug = (context.applicationInfo.flags and
                         android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0,
@@ -529,7 +536,7 @@ private fun ChatScreen(
         }
         // 长视频：先让模型报出「哪里看不清」，再从本地缓存的 MP4 里补原始分辨率帧。
         // 规划轮 record=false，不写 D1、不进记忆，用户在界面上也看不到。
-        val detailFrames = if (frames.isNotEmpty() && bili != null && bili.playUrl.isNotBlank()) {
+        val detailFrames = if (frames.isNotEmpty() && bili != null && usingPlayUrl.isNotBlank()) {
             runCatching {
                 val dur = bili.storyboardIndex.lastOrNull() ?: 0.0
                 if (dur < 150.0) {
@@ -544,7 +551,7 @@ private fun ChatScreen(
                     )
                     val times = parseLookTimes(plan)
                     if (times.isEmpty()) emptyList()
-                    else BiliFrames.detailFrames(bili.playUrl, context.cacheDir, times, bili.bvid)
+                    else BiliFrames.detailFrames(usingPlayUrl, context.cacheDir, times, bili.bvid)
                 }
             }.getOrDefault(emptyList())
         } else {

@@ -472,6 +472,30 @@ class ApiClient(
         }
     }
 
+    /**
+     * 现取一条可用的 MP4 直链。缓存里的 playUrl 带 deadline，放久了会 403，
+     * 发视频前重新要一次（一次 API，几百毫秒），比下载失败再回退雪碧图划算。
+     */
+    suspend fun freshPlayUrl(bvid: String, cid: Long, cookie: String): String = withContext(Dispatchers.IO) {
+        if (bvid.isBlank() || cid <= 0) return@withContext ""
+        runCatching {
+            val url = "https://api.bilibili.com/x/player/playurl" +
+                "?bvid=$bvid&cid=$cid&qn=64&fnval=1&fnver=0&fourk=0"
+            val req = Request.Builder().url(url)
+                .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/125.0 Mobile Safari/537.36")
+                .header("Referer", "https://www.bilibili.com/")
+                .apply { if (cookie.isNotBlank()) header("Cookie", cookie) }
+                .get().build()
+            execute(req).use { resp ->
+                val data = JSONObject(resp.body?.string().orEmpty()).optJSONObject("data")
+                val quality = data?.optInt("quality") ?: 0
+                val link = data?.optJSONArray("durl")?.optJSONObject(0)?.optString("url").orEmpty()
+                android.util.Log.i("BiliApi", "fresh playurl quality=$quality ok=" + link.isNotBlank())
+                link
+            }
+        }.getOrDefault("")
+    }
+
     suspend fun biliImage(url: String): ByteArray? = withContext(Dispatchers.IO) {
         if (url.isBlank()) return@withContext null
         val normalized = when {
