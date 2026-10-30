@@ -672,7 +672,7 @@ private fun ChatScreen(
                         val doc = DocumentParser.parse(context, attachment.uri)
                         val safeName = doc.name.replace('|', '_').replace(']', '_')
                         val body = "[文件:$safeName|${attachment.size}|${attachment.mime.replace(']', '_')}]\n" +
-                            "【文件内容】\n${doc.text}"
+                            "【文件内容】\n${doc.text}\n【/文件】"
                         api.chat(if (text.isBlank()) body else "$text\n\n$body", clientId)
                     }
                 }
@@ -2826,7 +2826,13 @@ private fun MessageBubble(
     val fileSize = fileMatch?.groupValues?.get(2)?.toLongOrNull() ?: 0L
     val fileMime = fileMatch?.groupValues?.get(3) ?: ""
     val fileContent = if (fileMatch != null) {
-        rawContent.substring(fileMatch.range.last + 1).trim()
+        // 结尾标记【/文件】是 2026-10-30 之后才有的：没有它，正文和后续聊天分不开，
+        // 文件里恰好含三反引号时还会截断在第一个代码块。
+        rawContent.substring(fileMatch.range.last + 1)
+            .substringBefore("【/文件】")
+            .removePrefix("\n")
+            .removePrefix("【文件内容】")
+            .trim()
     } else {
         ""
     }
