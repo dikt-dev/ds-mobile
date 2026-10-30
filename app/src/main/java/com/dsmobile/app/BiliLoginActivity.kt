@@ -8,25 +8,32 @@ import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.material3.Button
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.dsmobile.app.data.SettingsStore
+import com.dsmobile.app.ui.components.DsTextButton
+import com.dsmobile.app.ui.components.DsTopBar
+import com.dsmobile.app.ui.theme.Ds
+import com.dsmobile.app.ui.theme.DsSpace
+import com.dsmobile.app.ui.theme.DsTheme
+import com.dsmobile.app.ui.theme.rememberDarkTheme
 
 /**
  * 在 App 内用 WebView 完成 B 站登录，登录后从 CookieManager 取 SESSDATA。
@@ -65,45 +72,54 @@ class BiliLoginActivity : ComponentActivity() {
                 if (webView?.canGoBack() == true) webView?.goBack() else finish()
             }
 
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .statusBarsPadding()
-                    .padding(10.dp),
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+            DsTheme(darkTheme = rememberDarkTheme(store.themeMode)) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Ds.colors.canvas)
+                        .statusBarsPadding(),
                 ) {
-                    Text("登录 B 站", style = MaterialTheme.typography.titleLarge)
-                    Row {
-                        OutlinedButton(onClick = { finish() }) { Text("取消") }
-                        Button(onClick = { finishLogin() }) { Text("完成") }
-                    }
-                }
-                Text(status, style = MaterialTheme.typography.bodySmall)
-                AndroidView(
-                    modifier = Modifier.fillMaxWidth().weight(1f),
-                    factory = { context ->
-                        WebView(context).apply {
-                            webView = this
-                            settings.javaScriptEnabled = true
-                            settings.domStorageEnabled = true
-                            settings.databaseEnabled = true
-                            CookieManager.getInstance().setAcceptCookie(true)
-                            CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
-                            webViewClient = object : WebViewClient() {
-                                override fun onPageFinished(view: WebView?, url: String?) {
-                                    super.onPageFinished(view, url)
-                                    if (url?.contains("bilibili.com") == true) {
-                                        status = "已打开 B站，完成登录后点「完成」"
+                    DsTopBar(
+                        title = "登录 B 站",
+                        onBack = { finish() },
+                        backIcon = Icons.Filled.Close,
+                        actions = {
+                            DsTextButton("完成", onClick = { finishLogin() })
+                        },
+                    )
+                    Text(
+                        status,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Ds.colors.inkTertiary,
+                        modifier = Modifier.padding(horizontal = DsSpace.md, vertical = DsSpace.xs),
+                    )
+                    AndroidView(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                            .padding(DsSpace.md)
+                            .clip(RoundedCornerShape(16.dp)),
+                        factory = { context ->
+                            WebView(context).apply {
+                                webView = this
+                                settings.javaScriptEnabled = true
+                                settings.domStorageEnabled = true
+                                settings.databaseEnabled = true
+                                CookieManager.getInstance().setAcceptCookie(true)
+                                CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+                                webViewClient = object : WebViewClient() {
+                                    override fun onPageFinished(view: WebView?, url: String?) {
+                                        super.onPageFinished(view, url)
+                                        if (url?.contains("bilibili.com") == true) {
+                                            status = "已打开 B 站，完成登录后点右上角「完成」"
+                                        }
                                     }
                                 }
+                                loadUrl("https://passport.bilibili.com/login")
                             }
-                            loadUrl("https://passport.bilibili.com/login")
-                        }
-                    },
-                )
+                        },
+                    )
+                }
             }
         }
     }

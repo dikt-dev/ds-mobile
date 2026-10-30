@@ -17,3 +17,6 @@ build-log.txt
 
 
 .kotlin/
+push.log
+build*.log
+*.log

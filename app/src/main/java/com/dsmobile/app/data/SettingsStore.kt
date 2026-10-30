@@ -84,6 +84,11 @@ class SettingsStore(context: Context) {
         get() = prefs.getString("ssh_public_key", "") ?: ""
         set(value) = prefs.edit().putString("ssh_public_key", value.trim()).apply()
 
+    /** 外观：system / light / dark */
+    var themeMode: String
+        get() = prefs.getString("theme_mode", "system") ?: "system"
+        set(value) = prefs.edit().putString("theme_mode", value).apply()
+
     fun clear() {
         prefs.edit().clear().apply()
     }

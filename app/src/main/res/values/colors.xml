@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="ic_launcher_background">#F3EEFF</color>
+    <!-- 与 Compose 的 DsColors.canvas 保持一致：冷启动时不会先闪一下白 -->
+    <color name="window_background">#F7F6F3</color>
 </resources>

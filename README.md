@@ -6,6 +6,7 @@
 
 ## 文档
 
+- [UI 规范](docs/CHAT_UI.md)（「纸墨」设计系统：色板、字号、各页面结构）
 - [项目报告](docs/PROJECT_REPORT.md)（评审稿 v1.0，含阶段规划与验收标准）
 - [API 契约](docs/API_CONTRACT.md)（阶段 0 冻结稿）
 - [交付包说明](docs/DELIVERY.md)（安装包、SHA-256、已具备能力与已知缺口）

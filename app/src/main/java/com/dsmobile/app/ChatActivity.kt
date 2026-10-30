@@ -46,7 +46,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -81,6 +84,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.draw.shadow
@@ -97,7 +101,9 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -111,6 +117,7 @@ import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
+import androidx.compose.material.icons.filled.ArrowDownward
 import com.dsmobile.app.data.AppDatabase
 import com.dsmobile.app.data.MessageEntity
 import com.dsmobile.app.data.PendingMessageEntity
@@ -123,6 +130,20 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import com.dsmobile.app.parse.DocumentParser
 import com.dsmobile.app.speech.TtsConfigSync
+import com.dsmobile.app.ui.ChatComposer
+import com.dsmobile.app.ui.ChatLoading
+import com.dsmobile.app.ui.ChatTopBar
+import com.dsmobile.app.ui.DaySeparator
+import com.dsmobile.app.ui.EmptyChat
+import com.dsmobile.app.ui.MessageItem
+import com.dsmobile.app.ui.PairingScreen
+import com.dsmobile.app.ui.PendingMessageRow
+import com.dsmobile.app.ui.StatusStrip
+import com.dsmobile.app.ui.StreamingMessage
+import com.dsmobile.app.ui.components.DsField
+import com.dsmobile.app.ui.theme.Ds
+import com.dsmobile.app.ui.theme.DsTheme
+import com.dsmobile.app.ui.theme.rememberDarkTheme
 import com.dsmobile.app.speech.TtsManager
 import com.dsmobile.app.speech.VoiceRecorder
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -170,6 +191,15 @@ private object StatusPanelState {
     var visible by mutableStateOf(false)
 }
 
+/** 设置页的所有入口都在 ChatScreen 里，用同一个办法提到 ChatApp 顶层渲染，避免 Dialog 顶到状态栏。 */
+private object SettingsPanelState {
+    var visible by mutableStateOf(false)
+    var onBiliLogin: (() -> Unit)? by mutableStateOf(null)
+    var onNotification: (() -> Unit)? by mutableStateOf(null)
+    var onDebug: (() -> Unit)? by mutableStateOf(null)
+    var onLogout: (() -> Unit)? by mutableStateOf(null)
+}
+
 class ChatActivity : ComponentActivity() {
 
     private val notificationPermission = registerForActivityResult(
@@ -189,9 +219,18 @@ class ChatActivity : ComponentActivity() {
         // 每次开 App 同步一次语音参数：网页端靠它合成，和手机声音保持一致。
         TtsConfigSync.push(settings)
         setContent {
-            MaterialTheme {
-                Surface(modifier = Modifier.fillMaxSize()) {
-                    ChatApp(settings, db)
+            var themeMode by remember { mutableStateOf(settings.themeMode) }
+            DsTheme(darkTheme = rememberDarkTheme(themeMode)) {
+                Surface(modifier = Modifier.fillMaxSize(), color = Ds.colors.canvas) {
+                    ChatApp(
+                        settings = settings,
+                        db = db,
+                        themeMode = themeMode,
+                        onThemeModeChange = {
+                            settings.themeMode = it
+                            themeMode = it
+                        },
+                    )
                 }
             }
         }
@@ -219,106 +258,57 @@ class ChatActivity : ComponentActivity() {
 }
 
 @Composable
-private fun ChatApp(settings: SettingsStore, db: AppDatabase) {
+private fun ChatApp(
+    settings: SettingsStore,
+    db: AppDatabase,
+    themeMode: String,
+    onThemeModeChange: (String) -> Unit,
+) {
     var token by remember { mutableStateOf(settings.token) }
-    if (token.isNullOrBlank()) {
-        SetupScreen(settings) { newToken ->
-            token = newToken
-        }
-    } else {
-        ChatScreen(
-            settings = settings,
-            db = db,
-            token = token!!,
-            onLogout = {
-                settings.token = null
-                token = null
-            },
-        )
-    }
-}
-
-@Composable
-private fun SetupScreen(settings: SettingsStore, onPaired: (String) -> Unit) {
-    var baseUrl by remember { mutableStateOf(settings.baseUrl) }
-    var pairCode by remember { mutableStateOf("") }
-    var busy by remember { mutableStateOf(false) }
-    var status by remember { mutableStateOf("") }
-    val scope = rememberCoroutineScope()
     val context = LocalContext.current
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-            .verticalScroll(rememberScrollState())
-            .padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Text("DS-Mobile 配对", style = MaterialTheme.typography.headlineSmall)
-        Text(
-            "当前阶段配对码使用 Worker 的 ASTROBOT_API_KEY；配对成功后只保存设备 Token。",
-            style = MaterialTheme.typography.bodySmall,
-        )
-        OutlinedTextField(
-            value = baseUrl,
-            onValueChange = { baseUrl = it },
-            label = { Text("Worker 地址") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-        )
-        OutlinedTextField(
-            value = pairCode,
-            onValueChange = { pairCode = it },
-            label = { Text("配对码") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-        )
-        Button(
-            enabled = !busy && baseUrl.isNotBlank() && pairCode.isNotBlank(),
-            onClick = {
-                busy = true
-                status = "配对中…"
-                scope.launch {
-                    try {
-                        val normalized = baseUrl.trim().trimEnd('/')
-                        val token = ApiClient(normalized).pair(
-                            pairCode = pairCode,
-                            deviceName = "Redmi K60",
-                            deviceId = settings.deviceId,
-                        )
-                        settings.baseUrl = normalized
-                        settings.token = token
-                        status = "配对成功"
-                        onPaired(token)
-                    } catch (e: Exception) {
-                        status = "配对失败：${e.message}"
-                    } finally {
-                        busy = false
-                    }
-                }
-            },
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text(if (busy) "配对中…" else "配对并进入聊天")
+    if (token.isNullOrBlank()) {
+        // 配对页是根页面：键盘开着先收键盘，再按一次才把任务收到后台，不结束 App
+        val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+        val keyboard = LocalSoftwareKeyboardController.current
+        BackHandler {
+            if (imeVisible) keyboard?.hide() else (context as? Activity)?.moveTaskToBack(true)
         }
-        if (status.isNotEmpty()) Text(status, style = MaterialTheme.typography.bodySmall)
-        OutlinedButton(
-            onClick = {
-                context.startActivity(Intent(context, MainActivity::class.java))
-            },
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text("打开阶段 0 调试页")
-        }
-        OutlinedButton(
-            onClick = { openAutostartSettings(context) },
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text("打开自启动/省电设置")
+        PairingScreen(
+            settings = settings,
+            themeMode = themeMode,
+            onThemeModeChange = onThemeModeChange,
+            onPaired = { token = it },
+            onOpenDebug = { context.startActivity(Intent(context, MainActivity::class.java)) },
+            onOpenAutostart = { openAutostartSettings(context) },
+        )
+    } else {
+        Box(Modifier.fillMaxSize()) {
+            ChatScreen(
+                settings = settings,
+                db = db,
+                token = token!!,
+                onLogout = {
+                    settings.token = null
+                    token = null
+                },
+            )
+            if (SettingsPanelState.visible) {
+                BackHandler { SettingsPanelState.visible = false }
+                SettingsScreen(
+                    settings = settings,
+                    themeMode = themeMode,
+                    onThemeModeChange = onThemeModeChange,
+                    onClose = { SettingsPanelState.visible = false },
+                    onBiliLogin = { SettingsPanelState.onBiliLogin?.invoke() },
+                    onNotificationSettings = { SettingsPanelState.onNotification?.invoke() },
+                    onOpenDebug = { SettingsPanelState.onDebug?.invoke() },
+                    onLogout = { SettingsPanelState.onLogout?.invoke() },
+                )
+            }
         }
     }
 }
+
 
 private fun openAutostartSettings(context: Context) {
     val candidates = listOf(
@@ -390,7 +380,6 @@ private fun ChatScreen(
     var locationReason by remember { mutableStateOf("用户主动更新位置") }
     var status by remember { mutableStateOf("") }
     var streamingText by remember { mutableStateOf("") }
-    var showSettings by remember { mutableStateOf(false) }
     var initialScrollDone by remember { mutableStateOf(false) }
     var historyReady by remember { mutableStateOf(false) }
     var stickToBottom by remember { mutableStateOf(true) }
@@ -1050,11 +1039,25 @@ private fun ChatScreen(
     val canSend = !busy && (input.isNotBlank() || draft != null)
     val focusManager = LocalFocusManager.current
     var inputFocused by remember { mutableStateOf(false) }
+    var trayOpen by remember { mutableStateOf(false) }
+    val keyboard = LocalSoftwareKeyboardController.current
+    val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
 
-    // 返回键先收键盘/取消焦点，底部操作栏随之恢复。
-    BackHandler(enabled = inputFocused) {
-        inputFocused = false
-        focusManager.clearFocus()
+    /**
+     * 返回键逐层收：附件抽屉 → 语音面板 → 键盘 → 才离开聊天页。
+     * 之前每层都直接把 Activity 结束掉，用到一半按一下就退出 App。
+     */
+    BackHandler {
+        when {
+            trayOpen -> trayOpen = false
+            voiceMode -> voiceMode = false
+            inputFocused || imeVisible -> {
+                inputFocused = false
+                focusManager.clearFocus()
+                keyboard?.hide()
+            }
+            else -> (context as? Activity)?.moveTaskToBack(true)
+        }
     }
 
     LaunchedEffect(listState) {
@@ -1103,397 +1106,258 @@ private fun ChatScreen(
         }
     }
 
+    // 键盘弹出后重新贴底：窗口变矮时反向列表偶尔会停在半空，补一次对齐。
+    val imeBottom = WindowInsets.ime.getBottom(LocalDensity.current)
+    LaunchedEffect(imeBottom) {
+        if (imeBottom > 0 && stickToBottom && !listState.isScrollInProgress) {
+            delay(80)
+            listState.scrollToItem(0)
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    0f to Color(0xFFFDFBFF),
-                    0.35f to Color(0xFFF7F4FE),
-                    1f to Color(0xFFF0EEF8),
-                ),
-            )
+            .background(Ds.colors.canvas)
             .statusBarsPadding()
+            .navigationBarsPadding()
             .imePadding(),
     ) {
-        Surface(
-            color = Color(0xF2FFFFFF),
-            shadowElevation = 0.dp,
-            border = BorderStroke(1.dp, Color(0x0A000000)),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 11.dp),
-                verticalAlignment = Alignment.CenterVertically,
+        ChatTopBar(
+            name = "大肥鱼",
+            statusText = if (busy) "正在回复…" else "在线 · 已连接",
+            online = true,
+            busy = busy,
+            onAvatar = { StatusPanelState.visible = true },
+            onStatus = { StatusPanelState.visible = true },
+            onSettings = { SettingsPanelState.visible = true },
+        )
+
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            if (!historyReady) {
+                ChatLoading()
+            } else if (messages.isEmpty() && pending.isEmpty() && streamingText.isEmpty()) {
+                EmptyChat(onQuickStart = { text -> scope.launch { sendText(text) } })
+            }
+            LazyColumn(
+                state = listState,
+                reverseLayout = true,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .alpha(if (historyReady) 1f else 0f),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .shadow(
-                            8.dp,
-                            CircleShape,
-                            spotColor = Color(0x336C5CE7),
-                            ambientColor = Color(0x14000000),
-                        )
-                        .clip(CircleShape)
-                        .background(Color(0xFFF0ECFF))
-                        .border(1.dp, Color(0x226C5CE7), CircleShape)
-                        .clickable { StatusPanelState.visible = true },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Image(
-                        painter = painterResource(R.drawable.avatar),
-                        contentDescription = "大肥鱼头像",
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize().clip(CircleShape),
-                    )
-                }
-                Spacer(Modifier.width(11.dp))
-                Column {
-                    Text(
-                        "大肥鱼",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Color(0xFF1F1D27),
-                    )
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(6.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFF34C759)),
-                        )
-                        Spacer(Modifier.width(5.dp))
-                        Text(
-                            "在线 · 已连接",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Color(0xFF9A94A6),
-                        )
+                // reverseLayout：index 0 在底部，所以“正在输入/未发送”放在最前面。
+                if (streamingText.isNotEmpty()) {
+                    item(key = "streaming") {
+                        StreamingMessage(streamingText, onReveal = scrollToLatest)
                     }
                 }
-                Spacer(Modifier.weight(1f))
-                HeaderAction(Icons.Filled.BugReport) {
-                    context.startActivity(Intent(context, MainActivity::class.java))
-                }
-                Spacer(Modifier.width(2.dp))
-                HeaderAction(Icons.Filled.Settings) { showSettings = true }
-            }
-        }
-        if (!historyReady) {
-            Text(
-                "正在加载聊天记录…",
-                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                style = MaterialTheme.typography.labelMedium,
-                color = Color(0xFF9A94A6),
-                textAlign = TextAlign.Center,
-            )
-        }
-        LazyColumn(
-            state = listState,
-            reverseLayout = true,
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
-                .alpha(if (historyReady) 1f else 0f),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            // reverseLayout：index 0 在底部，所以“正在输入/未发送”放在最前面。
-            if (streamingText.isNotEmpty()) {
-                item(key = "streaming") {
-                    StreamingBubble(streamingText, onReveal = scrollToLatest)
-                }
-            }
-            items(pending.asReversed(), key = { "pending-${it.id}" }) { message ->
-                PendingBubble(
-                    message = message,
-                    busy = busy,
-                    failed = failedPendingIds[message.id] == true,
-                    onRetry = {
-                        scope.launch {
-                            busy = true
-                            failedPendingIds.remove(message.id)
-                            status = "重试发送…"
-                            try {
-                                api.chat(message.content, message.clientMessageId)
+                items(pending.asReversed(), key = { "pending-${it.id}" }) { message ->
+                    PendingMessageRow(
+                        message = message,
+                        busy = busy,
+                        failed = failedPendingIds[message.id] == true,
+                        onRetry = {
+                            scope.launch {
+                                busy = true
+                                failedPendingIds.remove(message.id)
+                                status = "重试发送…"
+                                try {
+                                    api.chat(message.content, message.clientMessageId)
+                                    dao.deletePending(message)
+                                    failedPendingIds.remove(message.id)
+                                    delay(300)
+                                    syncEvents()
+                                    status = ""
+                                } catch (e: Exception) {
+                                    failedPendingIds[message.id] = true
+                                    status = "发送失败：${e.message}"
+                                } finally {
+                                    busy = false
+                                }
+                            }
+                        },
+                        onDismiss = {
+                            scope.launch {
                                 dao.deletePending(message)
                                 failedPendingIds.remove(message.id)
-                                delay(300)
-                                syncEvents()
                                 status = ""
-                            } catch (e: Exception) {
-                                failedPendingIds[message.id] = true
-                                status = "发送失败：${e.message}"
-                            } finally {
-                                busy = false
                             }
-                        }
-                    },
-                    onDismiss = {
-                        scope.launch {
-                            dao.deletePending(message)
-                            failedPendingIds.remove(message.id)
-                            status = ""
-                        }
-                    },
-                )
-            }
-            itemsIndexed(
-                items = reversedMessages,
-                key = { _, message -> message.id },
-                contentType = { _, _ -> "message" },
-            ) { index, message ->
-                val older = reversedMessages.getOrNull(index + 1)
-                if (older == null || messageDay(older.createdAt) != messageDay(message.createdAt)) {
-                    DayDivider(messageDay(message.createdAt))
-                }
-                // 同一个人连着说时贴紧，换人留一口气——全一样间距会糊成一片
-                val sameSpeaker = older != null && older.role == message.role
-                if (older != null && !sameSpeaker) {
-                    Spacer(Modifier.height(12.dp))
-                }
-                MessageBubble(
-                    message = message,
-                    api = api,
-                    biliCookie = settings.biliCookie.ifBlank {
-                        if (settings.biliSessdata.isBlank()) "" else "SESSDATA=${settings.biliSessdata}"
-                    },
-                    animateSegments = animateSegments,
-                    onSpeak = { TtsManager.speak(context, settings, it) },
-                    onPrefetch = { TtsManager.prefetch(context, settings, it) },
-                    onReveal = scrollToLatest,
-                )
-            }
-        }
-        if (status.contains("失败") || status.startsWith("录音") || status.startsWith("转写")) {
-            Text(
-                status,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-                style = MaterialTheme.typography.bodySmall,
-                textAlign = TextAlign.Center,
-            )
-        }
-        Surface(
-            color = Color(0xFFFDFCFF),
-            shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
-            border = BorderStroke(1.dp, Color(0x0F6C5CE7)),
-            shadowElevation = 12.dp,
-        ) {
-            Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
-                if (voiceMode) {
-                    VoiceComposer(
-                        recording = recording,
-                        enabled = !busy,
-                        onHoldStart = { beginVoiceHold() },
-                        onHoldEnd = { endVoiceHold() },
-                        onHoldCancel = { cancelVoiceHold() },
-                        onSwitchKeyboard = {
-                            if (recording) endVoiceHold()
-                            voiceMode = false
                         },
                     )
-                } else {
-                    draft?.let { attachment ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = Color(0xFFF1EDFF),
-                                border = BorderStroke(1.dp, Color(0x226C5CE7)),
-                                modifier = Modifier.size(58.dp),
-                            ) {
-                                if (attachment.preview != null) {
-                                    Image(
-                                        bitmap = attachment.preview.asImageBitmap(),
-                                        contentDescription = attachment.name,
-                                        modifier = Modifier.fillMaxSize(),
-                                        contentScale = ContentScale.Crop,
-                                    )
-                                } else {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Text(
-                                            when (attachment.kind) {
-                                                "video" -> "视频"
-                                                "file" -> "文件"
-                                                else -> "图片"
-                                            },
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = Color(0xFF6C5CE7),
-                                        )
-                                    }
-                                }
-                            }
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                attachment.name,
-                                modifier = Modifier.weight(1f),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = Color(0xFF4A4555),
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            TextButton(onClick = { draft = null }) { Text("移除") }
-                        }
+                }
+                itemsIndexed(
+                    items = reversedMessages,
+                    key = { _, message -> message.id },
+                    contentType = { _, _ -> "message" },
+                ) { index, message ->
+                    val older = reversedMessages.getOrNull(index + 1)
+                    val newer = reversedMessages.getOrNull(index - 1)
+                    val day = messageDay(message.createdAt)
+                    val newDay = older == null || messageDay(older.createdAt) != day
+                    if (newDay) {
+                        DaySeparator(day)
                     }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.Bottom,
-                    ) {
-                        TextField(
-                            value = input,
-                            onValueChange = { input = it },
-                            modifier = Modifier
-                                .weight(1f)
-                                .onFocusChanged {
-                                    inputFocused = it.isFocused
-                                    if (it.isFocused) stickToBottom = true
-                                }
-                                .shadow(
-                                    5.dp,
-                                    RoundedCornerShape(26.dp),
-                                    spotColor = Color(0x1A6C5CE7),
-                                    ambientColor = Color(0x0D000000),
-                                ),
-                            textStyle = MaterialTheme.typography.bodyLarge.copy(
-                                lineHeight = 22.sp,
-                                color = Color(0xFF26232E),
-                            ),
-                            placeholder = { Text("说点什么…", color = Color(0xFFB3ADC2)) },
-                            maxLines = 4,
-                            shape = RoundedCornerShape(26.dp),
-                            colors = TextFieldDefaults.colors(
-                                focusedContainerColor = Color(0xFFF8F6FD),
-                                unfocusedContainerColor = Color(0xFFF8F6FD),
-                                disabledContainerColor = Color(0xFFF8F6FD),
-                                focusedIndicatorColor = Color.Transparent,
-                                unfocusedIndicatorColor = Color.Transparent,
-                                disabledIndicatorColor = Color.Transparent,
-                                cursorColor = Color(0xFF6C5CE7),
-                            ),
-                        )
-                        Spacer(Modifier.width(7.dp))
-                        Box(
-                            modifier = Modifier
-                                .size(48.dp)
-                                .shadow(
-                                    8.dp,
-                                    CircleShape,
-                                    spotColor = Color(0x3D7C5CFF),
-                                    ambientColor = Color(0x14000000),
-                                )
-                                .clip(CircleShape)
-                                .background(
-                                    if (canSend) {
-                                        Brush.linearGradient(
-                                            listOf(Color(0xFF7C5CFF), Color(0xFFA78BFA)),
-                                        )
-                                    } else {
-                                        Brush.linearGradient(
-                                            listOf(Color(0xFFE9E6F2), Color(0xFFE9E6F2)),
-                                        )
-                                    },
-                                )
-                                .clickable(enabled = canSend) {
-                                    if (draft != null) {
-                                        sendDraft()
-                                    } else {
-                                        val text = input.trim()
-                                        input = ""
-                                        scope.launch { sendText(text) }
-                                    }
-                                },
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(
-                                Icons.Filled.Send,
-                                contentDescription = "发送",
-                                tint = if (canSend) Color.White else Color(0xFFAAA6B5),
-                                modifier = Modifier.size(21.dp),
-                            )
-                        }
+                    // 同一个人连着说时贴紧，换人留一口气——全一样间距会糊成一片
+                    val sameSpeaker = older != null && !newDay && older.role == message.role
+                    val nextSameSpeaker = newer != null &&
+                        messageDay(newer.createdAt) == day &&
+                        newer.role == message.role
+                    if (!sameSpeaker && older != null) {
+                        Spacer(Modifier.height(10.dp))
                     }
-                    Spacer(Modifier.height(7.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceEvenly,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            ComposerAction(Icons.Filled.PhotoCamera, "拍照", !busy) {
-                                val dir = File(context.cacheDir, "camera").apply { mkdirs() }
-                                val file = File(dir, "shot-${System.currentTimeMillis()}.jpg")
-                                // 先落一个空文件：部分相机 App 直接往 uri 里写，文件不存在会失败
-                                runCatching { file.createNewFile() }
-                                val uri = FileProvider.getUriForFile(
-                                    context,
-                                    "${context.packageName}.fileprovider",
-                                    file,
-                                )
-                                cameraFile = file
-                                cameraUri = uri
-                                runCatching { takePicture.launch(uri) }.onFailure {
-                                    cameraFile = null
-                                    file.delete()
-                                    status = "打不开系统相机：${it.message}"
-                                }
+                    MessageItem(
+                        message = message,
+                        api = api,
+                        biliCookie = settings.biliCookie.ifBlank {
+                            if (settings.biliSessdata.isBlank()) "" else "SESSDATA=${settings.biliSessdata}"
+                        },
+                        showMeta = !sameSpeaker,
+                        grouped = sameSpeaker,
+                        showRead = message.role == "user" && !nextSameSpeaker,
+                        animate = animateSegments,
+                        onSpeak = { TtsManager.speak(context, settings, it) },
+                        onPrefetch = { TtsManager.prefetch(context, settings, it) },
+                        onReveal = scrollToLatest,
+                    )
+                }
+            }
+            if (historyReady && !stickToBottom && itemCount > 0) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(end = 16.dp, bottom = 12.dp)
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(Ds.colors.surface)
+                        .border(1.dp, Ds.colors.hairline, CircleShape)
+                        .clickable {
+                            scope.launch {
+                                stickToBottom = true
+                                listState.animateScrollToItem(0)
                             }
-                            ComposerAction(Icons.Filled.Photo, "图片", !busy) {
-                                imagePicker.launch(
-                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                )
-                            }
-                            ComposerAction(Icons.Filled.AttachFile, "文件", !busy) {
-                                val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                                    addCategory(Intent.CATEGORY_OPENABLE)
-                                    type = "*/*"
-                                    putExtra(
-                                        DocumentsContract.EXTRA_INITIAL_URI,
-                                        Uri.parse(
-                                            "content://com.android.externalstorage.documents/document/primary%3ADownload"
-                                        ),
-                                    )
-                                }
-                                filePicker.launch(intent)
-                            }
-                            ComposerAction(Icons.Filled.Videocam, "视频", !busy) {
-                                videoPicker.launch(
-                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)
-                                )
-                            }
-                            ComposerAction(Icons.Filled.Mic, "语音", !busy) {
-                                voiceMode = true
-                            }
-                            ComposerAction(Icons.Filled.LocationOn, "定位", !busy) {
-                                if (ContextCompat.checkSelfPermission(
-                                        context,
-                                        Manifest.permission.ACCESS_FINE_LOCATION,
-                                    ) == PackageManager.PERMISSION_GRANTED
-                                ) {
-                                    fetchLocation()
-                                } else {
-                                    locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
-                                }
-                            }
-                        }
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Filled.ArrowDownward,
+                        contentDescription = "回到底部",
+                        tint = Ds.colors.inkSecondary,
+                        modifier = Modifier.size(18.dp),
+                    )
                 }
             }
         }
+
+        if (status.contains("失败") || status.startsWith("录音") || status.startsWith("转写")) {
+            StatusStrip(status)
+        }
+
+        ChatComposer(
+            input = input,
+            onInputChange = { input = it },
+            canSend = input.isNotBlank() || draft != null,
+            busy = busy,
+            draft = draft,
+            onRemoveDraft = { draft = null },
+            trayOpen = trayOpen,
+            onTrayChange = { trayOpen = it },
+            onSend = {
+                if (draft != null) {
+                    sendDraft()
+                } else {
+                    val text = input.trim()
+                    if (text.isNotEmpty()) {
+                        input = ""
+                        scope.launch { sendText(text) }
+                    }
+                }
+            },
+            onPickCamera = {
+                val dir = File(context.cacheDir, "camera").apply { mkdirs() }
+                val file = File(dir, "shot-${System.currentTimeMillis()}.jpg")
+                // 先落一个空文件：部分相机 App 直接往 uri 里写，文件不存在会失败
+                runCatching { file.createNewFile() }
+                val uri = FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.fileprovider",
+                    file,
+                )
+                cameraFile = file
+                cameraUri = uri
+                runCatching { takePicture.launch(uri) }.onFailure {
+                    cameraFile = null
+                    status = "打不开系统相机：${it.message}"
+                }
+            },
+            onPickImage = {
+                imagePicker.launch(
+                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                )
+            },
+            onPickFile = {
+                val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type = "*/*"
+                    putExtra(
+                        DocumentsContract.EXTRA_INITIAL_URI,
+                        Uri.parse(
+                            "content://com.android.externalstorage.documents/document/primary%3ADownload"
+                        ),
+                    )
+                }
+                filePicker.launch(intent)
+            },
+            onPickVideo = {
+                videoPicker.launch(
+                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)
+                )
+            },
+            onPickLocation = {
+                if (ContextCompat.checkSelfPermission(
+                        context,
+                        Manifest.permission.ACCESS_FINE_LOCATION,
+                    ) == PackageManager.PERMISSION_GRANTED
+                ) {
+                    fetchLocation()
+                } else {
+                    locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                }
+            },
+            voiceMode = voiceMode,
+            onEnterVoice = {
+                voiceMode = true
+                inputFocused = false
+            },
+            onExitVoice = { voiceMode = false },
+            recording = recording,
+            onHoldStart = { beginVoiceHold() },
+            onHoldEnd = { endVoiceHold() },
+            onHoldCancel = { cancelVoiceHold() },
+            onFocusGained = { stickToBottom = true },
+        )
+
         if (showLocationDialog && locationLat != null && locationLng != null) {
             AlertDialog(
                 onDismissRequest = { showLocationDialog = false },
-                title = { Text("更新当前位置") },
+                containerColor = Ds.colors.surface,
+                shape = RoundedCornerShape(24.dp),
+                title = { Text("更新当前位置", color = Ds.colors.ink) },
                 text = {
                     Column {
                         Text(
                             "纬度 ${"%.5f".format(locationLat)}，经度 ${"%.5f".format(locationLng)}" +
-                                if (locationAccuracy > 0) "（精度约 ${locationAccuracy.toInt()}m）" else ""
+                                if (locationAccuracy > 0) "（精度约 ${locationAccuracy.toInt()}m）" else "",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Ds.colors.inkSecondary,
                         )
-                        Spacer(Modifier.height(8.dp))
-                        OutlinedTextField(
+                        Spacer(Modifier.height(12.dp))
+                        DsField(
+                            label = "变更原因",
                             value = locationReason,
                             onValueChange = { locationReason = it.take(120) },
-                            label = { Text("变更原因") },
-                            modifier = Modifier.fillMaxWidth(),
                         )
                     }
                 },
@@ -1520,10 +1384,12 @@ private fun ChatScreen(
                                 }
                             }
                         },
-                    ) { Text("确认更新") }
+                    ) { Text("确认更新", color = Ds.colors.accent) }
                 },
                 dismissButton = {
-                    TextButton(onClick = { showLocationDialog = false }) { Text("取消") }
+                    TextButton(onClick = { showLocationDialog = false }) {
+                        Text("取消", color = Ds.colors.inkSecondary)
+                    }
                 },
             )
         }
@@ -1531,286 +1397,31 @@ private fun ChatScreen(
             StatusScreen(api = api, onClose = { StatusPanelState.visible = false })
         }
 
-        if (showSettings) {
-            SettingsScreen(
-                settings = settings,
-                onClose = { showSettings = false },
-                onBiliLogin = {
-                    showSettings = false
-                    biliLoginLauncher.launch(Intent(context, BiliLoginActivity::class.java))
-                },
-                onNotificationSettings = {
-                    showSettings = false
-                    openNotificationSettings(context)
-                },
-                onLogout = {
-                    showSettings = false
-                    onLogout()
-                },
-            )
+        SideEffect {
+            SettingsPanelState.onBiliLogin = {
+                biliLoginLauncher.launch(Intent(context, BiliLoginActivity::class.java))
+            }
+            SettingsPanelState.onNotification = {
+                SettingsPanelState.visible = false
+                openNotificationSettings(context)
+            }
+            SettingsPanelState.onDebug = {
+                context.startActivity(Intent(context, MainActivity::class.java))
+            }
+            SettingsPanelState.onLogout = {
+                SettingsPanelState.visible = false
+                onLogout()
+            }
         }
     }
 }
 
-@Composable
-private fun HeaderAction(icon: ImageVector, onClick: () -> Unit) {
-    IconButton(onClick = onClick, modifier = Modifier.size(36.dp)) {
-        Icon(icon, contentDescription = null, tint = Color(0xFF8D84A8), modifier = Modifier.size(19.dp))
-    }
-}
 
-@Composable
-private fun ComposerAction(
-    icon: ImageVector,
-    label: String,
-    enabled: Boolean,
-    onClick: () -> Unit,
-) {
-    Column(
-        modifier = Modifier
-            .width(58.dp)
-            .clickable(enabled = enabled, onClick = onClick),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Box(
-            modifier = Modifier
-                .size(38.dp)
-                .clip(CircleShape)
-                .background(if (enabled) Color(0xFFF3EFFD) else Color(0xFFF1EFF5)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                icon,
-                contentDescription = label,
-                tint = if (enabled) Color(0xFF6C5CE7) else Color(0xFFC3BED0),
-                modifier = Modifier.size(20.dp),
-            )
-        }
-        Spacer(Modifier.height(2.dp))
-        Text(
-            label,
-            style = MaterialTheme.typography.labelSmall,
-            color = if (enabled) Color(0xFF8A82A3) else Color(0xFFB9B4C6),
-            maxLines = 1,
-        )
-    }
-}
-
-@Composable
-private fun VoiceComposer(
-    recording: Boolean,
-    enabled: Boolean,
-    onHoldStart: () -> Unit,
-    onHoldEnd: () -> Unit,
-    onHoldCancel: () -> Unit,
-    onSwitchKeyboard: () -> Unit,
-) {
-    Column(
-        modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 6.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Text(
-            if (recording) "松开 结束" else "按住 说话",
-            style = MaterialTheme.typography.labelMedium,
-            color = if (recording) Color(0xFF6C5CE7) else Color(0xFF8A8794),
-        )
-        Spacer(Modifier.height(10.dp))
-        Box(
-            modifier = Modifier
-                .size(104.dp)
-                .scale(if (recording) 1.06f else 1f)
-                .clip(CircleShape)
-                .background(
-                    Brush.radialGradient(
-                        listOf(Color(0xFFA78BFA), Color(0xFF6C4CF1)),
-                    ),
-                )
-                .pointerInput(enabled) {
-                    if (enabled) {
-                        detectTapGestures(
-                            onPress = {
-                                onHoldStart()
-                                val released = tryAwaitRelease()
-                                if (released) onHoldEnd() else onHoldCancel()
-                            },
-                        )
-                    }
-                },
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                Icons.Filled.Mic,
-                contentDescription = "按住说话",
-                tint = Color.White,
-                modifier = Modifier.size(42.dp),
-            )
-        }
-        Spacer(Modifier.height(8.dp))
-        TextButton(onClick = onSwitchKeyboard) {
-            Icon(Icons.Filled.Keyboard, contentDescription = null, modifier = Modifier.size(16.dp))
-            Spacer(Modifier.width(4.dp))
-            Text("键盘", style = MaterialTheme.typography.labelMedium)
-        }
-    }
-}
-
-private fun messageDay(raw: String): String {
+internal fun messageDay(raw: String): String {
     val day = raw.substringBefore('T', raw)
     return if (day.length == 10) day.substring(5) else day
 }
 
-@Composable
-private fun DayDivider(day: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-        horizontalArrangement = Arrangement.Center,
-    ) {
-        Surface(
-            shape = RoundedCornerShape(12.dp),
-            color = Color(0xF7FFFFFF),
-            border = BorderStroke(1.dp, Color(0x0F6C5CE7)),
-            shadowElevation = 2.dp,
-        ) {
-            Text(
-                day,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                style = MaterialTheme.typography.labelSmall,
-                color = Color(0xFF8F89A0),
-            )
-        }
-    }
-}
-
-@Composable
-private fun WebLinkCard(api: ApiClient, url: String) {
-    val uriHandler = LocalUriHandler.current
-    var preview by remember(url) { mutableStateOf(MediaCaches.webPreview(url)) }
-    LaunchedEffect(url) {
-        if (preview == null) {
-            preview = runCatching { api.webPreview(url) }.getOrNull()
-            preview?.let { MediaCaches.putWebPreview(url, it) }
-        }
-    }
-    val isDouyin = preview?.douyin == true || url.contains("douyin", ignoreCase = true)
-    val site = preview?.site?.ifBlank { null } ?: url.substringAfter("://").substringBefore('/')
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .clickable { uriHandler.openUri(url) },
-        shape = RoundedCornerShape(12.dp),
-        color = Color(0xFFF7F8FA),
-        border = BorderStroke(1.dp, Color(0x14000000)),
-    ) {
-        Row(
-            modifier = Modifier.padding(10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = if (isDouyin) Color(0xFF161823) else Color(0xFF4A78C2),
-                modifier = Modifier.size(38.dp),
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        if (isDouyin) "抖" else "网",
-                        color = Color.White,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
-            }
-            Spacer(Modifier.width(10.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    preview?.title?.takeIf { it.isNotBlank() }
-                        ?: if (isDouyin) "抖音视频" else "网页链接",
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                if (!preview?.description.isNullOrBlank()) {
-                    Text(
-                        preview!!.description,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF666666),
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(top = 2.dp),
-                    )
-                }
-                Text(
-                    site,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFF999999),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            Text(
-                "打开 ↗",
-                style = MaterialTheme.typography.labelSmall,
-                color = if (isDouyin) Color(0xFF161823) else Color(0xFF4A78C2),
-            )
-        }
-    }
-}
-
-@Composable
-private fun FileMessageCard(
-    name: String,
-    size: Long,
-    mime: String,
-    content: String,
-) {
-    var expanded by remember(name) { mutableStateOf(false) }
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Surface(
-                shape = RoundedCornerShape(10.dp),
-                color = Color(0xFFF0ECFA),
-                modifier = Modifier.size(38.dp),
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text("文件", style = MaterialTheme.typography.labelSmall, color = Color(0xFF6C4DB8))
-                }
-            }
-            Spacer(Modifier.width(10.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    name,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    "${formatBytes(size)} · ${mime.substringAfterLast('/').uppercase()}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFF888888),
-                )
-            }
-        }
-        if (content.isNotBlank()) {
-            TextButton(
-                onClick = { expanded = !expanded },
-                contentPadding = PaddingValues(0.dp),
-            ) {
-                Text(if (expanded) "收起内容" else "查看解析内容")
-            }
-            if (expanded) {
-                Text(
-                    content,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFF555555),
-                    maxLines = 20,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
-    }
-}
 
 private fun bitmapToDataUrl(bitmap: Bitmap): String {
     val out = ByteArrayOutputStream()
@@ -1818,517 +1429,22 @@ private fun bitmapToDataUrl(bitmap: Bitmap): String {
     return "data:image/jpeg;base64," + Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
 }
 
-private fun formatBytes(bytes: Long): String = when {
+internal fun formatBytes(bytes: Long): String = when {
     bytes >= 1024 * 1024 -> "%.1f MB".format(bytes / 1024.0 / 1024.0)
     bytes >= 1024 -> "%.1f KB".format(bytes / 1024.0)
     else -> "$bytes B"
 }
 
-@Composable
-private fun BiliCover(api: ApiClient, url: String, duration: Int) {
-    var drawable by remember(url) { mutableStateOf(MediaCaches.image("bili-cover:$url")) }
-    LaunchedEffect(url) {
-        if (drawable == null && url.isNotBlank()) {
-            val bytes = api.biliImage(url)
-            if (bytes != null) {
-                BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.let {
-                    val d = BitmapDrawable(null, it)
-                    MediaCaches.putImage("bili-cover:$url", d)
-                    drawable = d
-                }
-            }
-        }
-    }
-    Box(
-        modifier = Modifier
-            .width(110.dp)
-            .height(72.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(Color(0xFF1A1A1A)),
-    ) {
-        drawable?.let { image ->
-            AndroidView(
-                factory = { ctx ->
-                    ImageView(ctx).apply {
-                        scaleType = ImageView.ScaleType.CENTER_CROP
-                        setImageDrawable(image)
-                    }
-                },
-                modifier = Modifier.fillMaxSize(),
-            )
-        } ?: Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-            Text("B", color = Color(0xFFFB7299), style = MaterialTheme.typography.titleLarge)
-        }
-        Surface(
-            shape = CircleShape,
-            color = Color(0x99000000),
-            modifier = Modifier.align(Alignment.Center).size(28.dp),
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Text("▶", color = Color.White, style = MaterialTheme.typography.labelSmall)
-            }
-        }
-        if (duration > 0) {
-            Surface(
-                color = Color(0xB3000000),
-                shape = RoundedCornerShape(4.dp),
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(4.dp),
-            ) {
-                Text(
-                    formatDuration(duration),
-                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
-                    color = Color.White,
-                    style = MaterialTheme.typography.labelSmall,
-                )
-            }
-        }
-    }
-}
 
-@Composable
-private fun BilibiliCardQQ(api: ApiClient, url: String, biliCookie: String) {
-    val uriHandler = LocalUriHandler.current
-    val context = LocalContext.current
-    var preview by remember(url) { mutableStateOf(MediaCaches.biliPreview(url)) }
-    var frames by remember(url) { mutableStateOf(MediaCaches.biliFrame(url)) }
-    var framesLoading by remember(url) { mutableStateOf(false) }
-    var showFrames by remember(url) { mutableStateOf(false) }
-    LaunchedEffect(url) {
-        if (preview == null) {
-            preview = runCatching { api.biliPreview(url) }.getOrNull()
-            preview?.let { MediaCaches.putBiliPreview(url, it) }
-        }
-    }
-    LaunchedEffect(preview?.storyboardUrl, preview?.playUrl) {
-        val p = preview
-        if (frames == null && p != null && (p.storyboardUrl.isNotBlank() || p.playUrl.isNotBlank())) {
-            framesLoading = true
-            frames = BiliFrames.load(
-                cacheKey = url,
-                storyboardUrl = p.storyboardUrl,
-                storyboardCols = p.storyboardCols,
-                storyboardRows = p.storyboardRows,
-                playUrl = p.playUrl,
-                cookie = biliCookie,
-                cacheDir = context.cacheDir,
-            )
-            framesLoading = false
-        }
-    }
-    val displayUrl = url.removePrefix("https://").removePrefix("http://")
-    val summary = preview?.let { it.summary.ifBlank { it.desc } }.orEmpty()
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .clickable { uriHandler.openUri(url) },
-        shape = RoundedCornerShape(10.dp),
-        color = Color.White,
-        border = BorderStroke(1.dp, Color(0x14000000)),
-    ) {
-        Column(modifier = Modifier.padding(8.dp)) {
-            Row(verticalAlignment = Alignment.Top) {
-                BiliCover(api, preview?.cover.orEmpty(), preview?.duration ?: 0)
-                Spacer(Modifier.width(10.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        preview?.title?.takeIf { it.isNotBlank() } ?: "哔哩哔哩视频",
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Medium,
-                        color = Color(0xFF1F1F1F),
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            "哔哩哔哩",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Color(0xFFFB7299),
-                        )
-                        preview?.owner?.takeIf { it.isNotBlank() }?.let {
-                            Text(
-                                " · $it",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = Color(0xFF999999),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    }
-                    if (summary.isNotBlank()) {
-                        Text(
-                            summary,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color(0xFF666666),
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(top = 2.dp),
-                        )
-                    }
-                }
-            }
-            Spacer(Modifier.height(5.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    displayUrl,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFF999999),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                Text("打开 ↗", style = MaterialTheme.typography.labelSmall, color = Color(0xFFFB7299))
-            }
-            if (frames != null || framesLoading) {
-                TextButton(
-                    onClick = { showFrames = !showFrames },
-                    contentPadding = PaddingValues(horizontal = 0.dp, vertical = 0.dp),
-                ) {
-                    Text(
-                        if (showFrames) "收起视频帧" else if (framesLoading) "视频抽帧中…" else "查看视频帧",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color(0xFF7C5CBF),
-                    )
-                }
-            }
-            if (showFrames && frames != null) {
-                Image(
-                    bitmap = frames!!.asImageBitmap(),
-                    contentDescription = "B站视频帧",
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(160.dp)
-                        .padding(top = 4.dp)
-                        .clip(RoundedCornerShape(8.dp)),
-                    contentScale = ContentScale.Fit,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun BilibiliCard(api: ApiClient, url: String, biliCookie: String) {
-    val uriHandler = LocalUriHandler.current
-    val context = LocalContext.current
-    var preview by remember(url) { mutableStateOf(MediaCaches.biliPreview(url)) }
-    var frames by remember(url) { mutableStateOf(MediaCaches.biliFrame(url)) }
-    var framesLoading by remember(url) { mutableStateOf(false) }
-    LaunchedEffect(url) {
-        if (preview == null) {
-            preview = runCatching { api.biliPreview(url) }.getOrNull()
-            preview?.let { MediaCaches.putBiliPreview(url, it) }
-        }
-    }
-    LaunchedEffect(preview?.storyboardUrl, preview?.playUrl) {
-        if (frames == null) {
-            val p = preview
-            if (p != null && (p.storyboardUrl.isNotBlank() || p.playUrl.isNotBlank())) {
-                framesLoading = true
-                frames = BiliFrames.load(
-                    cacheKey = url,
-                    storyboardUrl = p.storyboardUrl,
-                    storyboardCols = p.storyboardCols,
-                    storyboardRows = p.storyboardRows,
-                    playUrl = p.playUrl,
-                    cookie = biliCookie,
-                    cacheDir = context.cacheDir,
-                )
-                framesLoading = false
-            }
-        }
-    }
-    val displayUrl = url
-        .removePrefix("https://")
-        .removePrefix("http://")
-    val summary = preview?.let { it.summary.ifBlank { it.desc } }.orEmpty()
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .clickable { uriHandler.openUri(url) },
-        shape = RoundedCornerShape(12.dp),
-        color = Color(0xFFF7F8FA),
-        border = BorderStroke(1.dp, Color(0x14000000)),
-    ) {
-        Row(
-            modifier = Modifier.padding(10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = Color(0xFFFB7299),
-                modifier = Modifier.size(38.dp),
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        "B",
-                        color = Color.White,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
-            }
-            Spacer(Modifier.width(10.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    preview?.title?.takeIf { it.isNotBlank() } ?: "哔哩哔哩视频",
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Medium,
-                    color = Color(0xFF222222),
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    listOfNotNull(
-                        preview?.owner?.takeIf { it.isNotBlank() },
-                        preview?.duration?.takeIf { it > 0 }?.let { formatDuration(it) },
-                        displayUrl,
-                    ).joinToString(" · "),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFF888888),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                if (summary.isNotBlank()) {
-                    Text(
-                        summary,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF555555),
-                        maxLines = 3,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(top = 3.dp),
-                    )
-                }
-                if (frames != null) {
-                    Image(
-                        bitmap = frames!!.asImageBitmap(),
-                        contentDescription = "B站视频抽帧",
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(170.dp)
-                            .padding(top = 6.dp)
-                            .clip(RoundedCornerShape(8.dp)),
-                        contentScale = ContentScale.Fit,
-                    )
-                } else if (framesLoading) {
-                    Text(
-                        "视频抽帧中…",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color(0xFF999999),
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
-                }
-            }
-            Text(
-                "打开 ↗",
-                style = MaterialTheme.typography.labelSmall,
-                color = Color(0xFFFB7299),
-            )
-        }
-    }
-}
-
-@Composable
-private fun SegmentedMessage(
-    messageId: Long,
-    label: String,
-    segments: List<ChatSegment>,
-    animate: Boolean,
-    onSpeak: (String) -> Unit,
-    onPrefetch: (String) -> Unit,
-    onReveal: () -> Unit,
-) {
-    val voices = segments.filterIsInstance<ChatSegment.Voice>().map { it.text }
-    LaunchedEffect(voices) {
-        voices.forEach { if (it.isNotBlank()) onPrefetch(it) }
-    }
-    val alreadyRevealed = !animate || revealedMessageIds.contains(messageId)
-    var visibleCount by remember(messageId) {
-        mutableStateOf(if (alreadyRevealed) segments.size else 1)
-    }
-    LaunchedEffect(messageId, segments.size, animate) {
-        if (animate && !revealedMessageIds.contains(messageId)) {
-            while (visibleCount < segments.size) {
-                delay(1000)
-                visibleCount++
-                onReveal()
-            }
-            revealedMessageIds.add(messageId)
-        }
-    }
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(7.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            // 这里是她的「一组话」的开头，头像要和我这边一样大；
-            // 之前用的是 26dp 的小标，和我那侧的 50dp 摆在一起明显一大一小。
-            AvatarBadge(isUser = false, size = 50.dp)
-            Spacer(Modifier.width(6.dp))
-            Text(
-                label,
-                style = MaterialTheme.typography.labelSmall,
-                color = Color(0xFF9A94A6),
-                modifier = Modifier.padding(horizontal = 2.dp, vertical = 3.dp),
-            )
-        }
-        segments.take(visibleCount.coerceAtMost(segments.size)).forEach { segment ->
-            when (segment) {
-                is ChatSegment.Text -> if (segment.text.isNotBlank()) {
-                    val bubbleShape = RoundedCornerShape(
-                        topStart = 8.dp,
-                        topEnd = 20.dp,
-                        bottomEnd = 20.dp,
-                        bottomStart = 20.dp,
-                    )
-                    Surface(
-                        modifier = Modifier
-                            .widthIn(max = 330.dp)
-                            .shadow(2.dp, bubbleShape, spotColor = Color(0x1F4C3F8F), ambientColor = Color.Transparent)
-                            .shadow(14.dp, bubbleShape, spotColor = Color(0x146C5CE7), ambientColor = Color(0x0A000000))
-                            .background(Brush.verticalGradient(listOf(Color(0xFFFFFFFF), Color(0xFFF7F5FF))), bubbleShape)
-                            .border(1.dp, Brush.verticalGradient(listOf(Color(0x66FFFFFF), Color(0x146C5CE7))), bubbleShape),
-                            shape = bubbleShape,
-                            color = Color.Transparent,
-                            shadowElevation = 0.dp,
-                    ) {
-                        Text(
-                            replaceFaceMarkers(segment.text),
-                            modifier = Modifier.padding(horizontal = 15.dp, vertical = 12.dp),
-                            style = MaterialTheme.typography.bodyMedium.copy(
-                                lineHeight = 22.sp,
-                                letterSpacing = 0.15.sp,
-                            ),
-                            color = Color(0xFF26232E),
-                        )
-                    }
-                }
-                is ChatSegment.Voice -> VoiceMessageBubble(
-                    segment.text,
-                    onPlay = { onSpeak(segment.text) },
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun VoiceMessageBubble(text: String, onPlay: () -> Unit) {
-    val seconds = (stripSpokenActions(text).length / 5).coerceIn(2, 60)
-    val width = (176 + seconds * 2).coerceAtMost(268).dp
-    var showTranscript by remember(text) { mutableStateOf(false) }
-    Column(
-        modifier = Modifier.widthIn(max = 300.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Surface(
-                modifier = Modifier
-                    .width(width)
-                    .shadow(
-                        8.dp,
-                        RoundedCornerShape(20.dp),
-                        spotColor = Color(0x1F6C5CE7),
-                        ambientColor = Color(0x0D000000),
-                    )
-                    .clip(RoundedCornerShape(20.dp))
-                    .clickable { onPlay() },
-                shape = RoundedCornerShape(20.dp),
-                color = Color.White,
-                border = BorderStroke(1.dp, Color(0x126C5CE7)),
-                shadowElevation = 0.dp,
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 13.dp, vertical = 9.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Surface(
-                        shape = CircleShape,
-                        color = Color(0xFF7C5CBF),
-                        modifier = Modifier.size(30.dp),
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Text(
-                                "▶",
-                                color = Color.White,
-                                style = MaterialTheme.typography.labelMedium,
-                            )
-                        }
-                    }
-                    Spacer(Modifier.width(9.dp))
-                    VoiceWaveform(color = Color(0xFF7C5CBF), modifier = Modifier.weight(1f))
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        formatDuration(seconds),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = Color(0xFF666666),
-                    )
-                }
-            }
-            Spacer(Modifier.width(4.dp))
-            TextButton(
-                onClick = { showTranscript = !showTranscript },
-                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
-            ) {
-                Text(if (showTranscript) "收起" else "转文字", style = MaterialTheme.typography.labelSmall)
-            }
-        }
-        if (showTranscript) {
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = Color(0xFFF5F3FA),
-                border = BorderStroke(1.dp, Color(0x12000000)),
-            ) {
-                Text(
-                    text,
-                    modifier = Modifier.padding(horizontal = 11.dp, vertical = 8.dp),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFF444444),
-                    maxLines = 8,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun VoiceWaveform(color: Color, modifier: Modifier = Modifier) {
-    Canvas(modifier = modifier.height(20.dp)) {
-        val bars = 16
-        val step = size.width / bars
-        val heights = listOf(0.35f, 0.55f, 0.8f, 0.45f, 0.7f, 1f, 0.5f, 0.75f, 0.6f, 0.9f, 0.4f, 0.65f, 0.85f, 0.5f, 0.7f, 0.35f)
-        repeat(bars) { i ->
-            val h = size.height * heights[i]
-            val x = step * i + step / 2
-            drawLine(
-                color = color.copy(alpha = 0.65f),
-                start = Offset(x, (size.height - h) / 2),
-                end = Offset(x, (size.height + h) / 2),
-                strokeWidth = 2.4.dp.toPx(),
-                cap = androidx.compose.ui.graphics.StrokeCap.Round,
-            )
-        }
-    }
-}
-
-private fun formatDuration(seconds: Int): String =
+internal fun formatDuration(seconds: Int): String =
     "%d:%02d".format(seconds / 60, seconds % 60)
 
-private sealed interface ChatSegment {
+internal sealed interface ChatSegment {
     data class Text(val text: String) : ChatSegment
     data class Voice(val text: String) : ChatSegment
 }
 
-private data class DraftAttachment(
+internal data class DraftAttachment(
     val uri: Uri,
     val kind: String,
     val name: String,
@@ -2360,15 +1476,15 @@ private val VOICE_MARKERS = listOf("【语音】", "【语音消息】", "[语�
  * URL 只吃合法 ASCII URL 字符，遇到中文/中文标点就停。
  * 旧正则 [^\s，。！？)]+ 会把紧跟短链的中文一起吞进去，导致 B 站卡片吞掉正文。
  */
-private val BILI_URL_REGEX = Regex(
+internal val BILI_URL_REGEX = Regex(
     """https?://(?:b23\.tv|(?:www\.)?bilibili\.com)/[A-Za-z0-9_?=&%./\-]+""",
     RegexOption.IGNORE_CASE,
 )
-private val URL_REGEX = Regex(
+internal val URL_REGEX = Regex(
     """https?://[A-Za-z0-9\-._~:/?#\[\]@!%&'()*+,;=]+""",
     RegexOption.IGNORE_CASE,
 )
-private val revealedMessageIds = java.util.Collections.synchronizedSet(mutableSetOf<Long>())
+internal val revealedMessageIds = java.util.Collections.synchronizedSet(mutableSetOf<Long>())
 
 private fun splitSentences(text: String): List<String> {
     val out = mutableListOf<String>()
@@ -2410,7 +1526,7 @@ private fun splitSentences(text: String): List<String> {
 }
 
 /** 把包含语音标记的长消息拆成“文字句 + 独立语音”的片段。 */
-private fun parseChatSegments(raw: String): List<ChatSegment> {
+internal fun parseChatSegments(raw: String): List<ChatSegment> {
     val out = mutableListOf<ChatSegment>()
     var rest = raw
     fun addText(text: String) {
@@ -2451,7 +1567,7 @@ private fun parseChatSegments(raw: String): List<ChatSegment> {
     return out
 }
 
-private fun messageTime(raw: String): String {
+internal fun messageTime(raw: String): String {
     val time = raw.substringAfter('T', "").take(5)
     return if (time.length == 5) time else ""
 }
@@ -2518,12 +1634,32 @@ private fun biliMetaText(preview: BiliPreview, url: String): String = buildStrin
     append("[/BILI_META]")
 }
 
-private fun stripBiliMeta(text: String): String =
-    stripLeadTimeLabels(text)
-        .replace(Regex("(?s)\\[BILI_META\\].*?\\[/BILI_META\\]"), "")
-        .replace(Regex("(?s)\\[WEB_META\\].*?\\[/WEB_META\\]"), "")
-        .replace("[视频帧]", "")
+/**
+ * 发消息时给模型补的收尾提示（"后面这几张…"）。
+ *
+ * 这句话只对模型说，但服务端会把它当成消息正文存下来，同步回来就出现在自己的气泡里。
+ * 显示前统一清掉；两种括号、标点缺省都兼容，历史消息也能一起修好。
+ */
+private val INTERNAL_NOTE_REGEX = Regex(
+    // 历史上有两种写法："后面这几张…" 和 "另外附了 N 张…"，共同特征是"左上角标着时间"。
+    // 按特征匹配而不是整句匹配，旧消息、以后换了措辞都能清掉。
+    "[（(][^（）()]{0,80}左上角标着时间[）)]\\s*",
+)
+
+private fun stripInternalNotes(text: String): String =
+    // 注意：Regex.replace 的替换串里反斜杠是转义符，"\\n\\n" 会变成两个字母 n。
+    // 这里必须用真实的换行字符，否则清掉提示后气泡末尾会多出 "nn"。
+    text.replace(INTERNAL_NOTE_REGEX, "")
+        .replace(Regex("\\n{3,}"), "\n\n")
         .trim()
+
+internal fun stripBiliMeta(text: String): String =
+    stripInternalNotes(
+        stripLeadTimeLabels(text)
+            .replace(Regex("(?s)\\[BILI_META\\].*?\\[/BILI_META\\]"), "")
+            .replace(Regex("(?s)\\[WEB_META\\].*?\\[/WEB_META\\]"), "")
+            .replace("[视频帧]", ""),
+    )
 
 /**
  * 历史注入时给每条消息加了 [MM-DD HH:MM] 前缀，模型偶尔会模仿到回复开头。
@@ -2557,7 +1693,7 @@ private fun stripLeadTimeLabels(text: String): String {
 private val WEB_FILE_HEAD_RE = Regex("""【文件：([^】]+)】""")
 private const val WEB_FILE_END = "【/文件】"
 
-private fun normalizeWebFileBlock(text: String): String {
+internal fun normalizeWebFileBlock(text: String): String {
     val head = WEB_FILE_HEAD_RE.find(text) ?: return text
     val name = head.groupValues[1].trim()
     if (name.isEmpty()) return text
@@ -2602,593 +1738,9 @@ private fun webMetaText(preview: WebPreview, url: String): String = buildString 
     append("[/WEB_META]")
 }
 
-@Composable
-private fun StreamingBubble(text: String, onReveal: () -> Unit) {
-    val segments = parseChatSegments(text)
-    var visibleCount by remember { mutableStateOf(1) }
-    LaunchedEffect(segments.size) {
-        while (visibleCount < segments.size) {
-            delay(1000)
-            visibleCount++
-            onReveal()
-        }
-    }
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.Start,
-    ) {
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Text(
-                "大肥鱼 · 正在输入",
-                style = MaterialTheme.typography.labelSmall,
-                color = Color(0xFF888888),
-                modifier = Modifier.padding(horizontal = 6.dp),
-            )
-            segments.filterIsInstance<ChatSegment.Text>()
-                .take(visibleCount.coerceAtMost(segments.size))
-                .forEach { segment ->
-                    if (segment.text.isNotBlank()) {
-                        val bubbleShape = RoundedCornerShape(
-                            topStart = 8.dp,
-                            topEnd = 20.dp,
-                            bottomEnd = 20.dp,
-                            bottomStart = 20.dp,
-                        )
-                        Surface(
-                            modifier = Modifier
-                                .widthIn(max = 330.dp)
-                                .shadow(2.dp, bubbleShape, spotColor = Color(0x1F4C3F8F), ambientColor = Color.Transparent)
-                                .shadow(14.dp, bubbleShape, spotColor = Color(0x146C5CE7), ambientColor = Color(0x0A000000))
-                                .background(Brush.verticalGradient(listOf(Color(0xFFFFFFFF), Color(0xFFF7F5FF))), bubbleShape)
-                                .border(1.dp, Brush.verticalGradient(listOf(Color(0x66FFFFFF), Color(0x146C5CE7))), bubbleShape),
-                                shape = bubbleShape,
-                                color = Color.Transparent,
-                                shadowElevation = 0.dp,
-                        ) {
-                            Text(
-                                replaceFaceMarkers(segment.text),
-                                modifier = Modifier.padding(horizontal = 15.dp, vertical = 12.dp),
-                                style = MaterialTheme.typography.bodyMedium.copy(
-                                    lineHeight = 22.sp,
-                                    letterSpacing = 0.15.sp,
-                                ),
-                                color = Color(0xFF26232E),
-                            )
-                        }
-                    }
-                }
-            if (segments.any { it is ChatSegment.Voice }) {
-                Text(
-                    "语音生成中…",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFF888888),
-                    modifier = Modifier.padding(horizontal = 6.dp),
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun ReadStatus(failed: Boolean) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(
-            if (failed) "失败" else "已读",
-            style = MaterialTheme.typography.labelSmall,
-            color = if (failed) Color(0xFFE53935) else Color(0xFF8A8A8A),
-        )
-        Spacer(Modifier.width(4.dp))
-        Surface(
-            shape = CircleShape,
-            color = if (failed) Color(0xFFE53935) else Color(0xFF43A047),
-            modifier = Modifier.size(14.dp),
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Text(
-                    if (failed) "×" else "✓",
-                    color = Color.White,
-                    style = MaterialTheme.typography.labelSmall,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun PendingBubble(
-    message: PendingMessageEntity,
-    busy: Boolean,
-    failed: Boolean,
-    onRetry: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val context = LocalContext.current
-    val localPreview = remember(message.localUri) {
-        message.localUri?.let { raw ->
-            runCatching {
-                context.contentResolver.openInputStream(Uri.parse(raw))?.use {
-                    BitmapFactory.decodeStream(it)
-                }
-            }.getOrNull()
-        }
-    }
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.End,
-    ) {
-        Text(
-            "我 · App",
-            style = MaterialTheme.typography.labelSmall,
-            color = Color(0xFF888888),
-            modifier = Modifier.padding(end = 6.dp, bottom = 3.dp),
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End,
-            verticalAlignment = Alignment.Bottom,
-        ) {
-            if (failed) {
-                ReadStatus(failed = true)
-                Spacer(Modifier.width(4.dp))
-            }
-            val bubbleShape = RoundedCornerShape(
-                topStart = 20.dp,
-                topEnd = 8.dp,
-                bottomEnd = 20.dp,
-                bottomStart = 20.dp,
-            )
-            Surface(
-                modifier = Modifier
-                    .widthIn(max = 330.dp)
-                    .shadow(2.dp, bubbleShape, spotColor = Color(0x1F4C3F8F), ambientColor = Color.Transparent)
-                    .shadow(14.dp, bubbleShape, spotColor = Color(0x2A6C5CE7), ambientColor = Color(0x0A000000)),
-                shape = bubbleShape,
-                color = Color(0xFFEDE7FF),
-                border = BorderStroke(1.dp, Color(0x226C5CE7)),
-                shadowElevation = 0.dp,
-            ) {
-                Column(modifier = Modifier.padding(horizontal = 15.dp, vertical = 12.dp)) {
-                    if (localPreview != null) {
-                        Image(
-                            bitmap = localPreview.asImageBitmap(),
-                            contentDescription = message.attachmentName ?: "待发送图片",
-                            modifier = Modifier
-                                .widthIn(max = 260.dp)
-                                .heightIn(max = 260.dp)
-                                .clip(RoundedCornerShape(12.dp)),
-                            contentScale = ContentScale.Fit,
-                        )
-                    } else if (message.attachmentKind != null) {
-                        Text(
-                            message.attachmentName ?: "待发送附件",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color(0xFF6C5CE7),
-                        )
-                    }
-                    if (message.content.isNotBlank()) {
-                        if (localPreview != null) Spacer(Modifier.height(6.dp))
-                        Text(
-                            replaceFaceMarkers(stripBiliMeta(message.content)),
-                            style = MaterialTheme.typography.bodyMedium.copy(
-                                lineHeight = 22.sp,
-                                letterSpacing = 0.15.sp,
-                            ),
-                            maxLines = 30,
-                            overflow = TextOverflow.Ellipsis,
-                            color = Color(0xFF26232E),
-                        )
-                    }
-                    if (failed) {
-                        Row {
-                            TextButton(onClick = onRetry, enabled = !busy) { Text("重试") }
-                            TextButton(onClick = onDismiss, enabled = !busy) { Text("删除") }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
 
 /** 头像：AI 用设定图，用户用一张占位图；尺寸可缩到 18dp 放小标题行。 */
-@Composable
-private fun AvatarBadge(isUser: Boolean, size: androidx.compose.ui.unit.Dp = 50.dp) {
-    Box(
-        modifier = Modifier
-            .size(size)
-            .clip(CircleShape)
-            .background(if (isUser) Color(0xFFF3EEFF) else Color(0xFFF0ECFF))
-            .border(1.dp, Color(0x226C5CE7), CircleShape),
-        contentAlignment = Alignment.Center,
-    ) {
-        Image(
-            painter = painterResource(if (isUser) R.drawable.user_avatar else R.drawable.avatar),
-            contentDescription = if (isUser) "我的头像" else "大肥鱼头像",
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .fillMaxSize()
-                .clip(CircleShape)
-                .clickable(enabled = !isUser) { StatusPanelState.visible = true },
-        )
-    }
-}
 
-@Composable
-private fun MessageBubble(
-    message: MessageEntity,
-    api: ApiClient,
-    biliCookie: String,
-    animateSegments: Boolean,
-    onSpeak: (String) -> Unit,
-    onPrefetch: (String) -> Unit,
-    onReveal: () -> Unit,
-) {
-    val isUser = message.role == "user"
-    val channel = when (message.channel) {
-        "mobile" -> "App"
-        "web" -> "网页"
-        "astrobot" -> "QQ"
-        else -> message.channel
-    }
-    // 网页端发来的文件块是「【文件：name】 + 围栏正文 + 【/文件】」，和 App 的
-    // [文件:name|size|mime] 不是一套格式；不统一就会把整份正文当聊天内容显示出来。
-    val rawContent = normalizeWebFileBlock(stripBiliMeta(message.content))
-    val fileRegex = Regex("""\[文件:([^|\]]+)\|(\d+)\|([^\]]*)]""")
-    val fileMatch = fileRegex.find(rawContent)
-    val fileName = fileMatch?.groupValues?.get(1) ?: ""
-    val fileSize = fileMatch?.groupValues?.get(2)?.toLongOrNull() ?: 0L
-    val fileMime = fileMatch?.groupValues?.get(3) ?: ""
-    val fileContent = if (fileMatch != null) {
-        // 结尾标记【/文件】是 2026-10-30 之后才有的：没有它，正文和后续聊天分不开，
-        // 文件里恰好含三反引号时还会截断在第一个代码块。
-        rawContent.substring(fileMatch.range.last + 1)
-            .substringBefore("【/文件】")
-            .removePrefix("\n")
-            .removePrefix("【文件内容】")
-            .trim()
-    } else {
-        ""
-    }
-    val contentForText = if (fileMatch != null) {
-        rawContent.substring(0, fileMatch.range.first)
-    } else {
-        rawContent
-    }
-    val mediaRegex = Regex("\\[(视频|GIF):([^\\]]+)]")
-    val mediaItems = mediaRegex.findAll(contentForText)
-        .map { it.groupValues[1] to it.groupValues[2] }
-        .toList()
-    val imageKeys = Regex("\\[图片:([^\\]]+)]")
-        .findAll(contentForText)
-        .map { it.groupValues[1] }
-        .toList()
-
-    val voiceMarkers = listOf("【语音消息】", "[语音消息]", "【语音】", "[语音]", "（语音）")
-    val firstMarker = voiceMarkers
-        .mapNotNull { marker -> contentForText.indexOf(marker).takeIf { it >= 0 }?.let { it to marker } }
-        .minByOrNull { it.first }
-    val textPart = if (firstMarker != null) contentForText.substring(0, firstMarker.first) else contentForText
-    val voicePart = if (firstMarker != null) {
-        contentForText.substring(firstMarker.first + firstMarker.second.length)
-    } else {
-        ""
-    }
-    val displayText = textPart
-        .replace(Regex("\\[图片:([^\\]]+)]"), "")
-        .replace(mediaRegex, "")
-        .trim()
-    val voiceText = voicePart
-        .replace(Regex("\\[图片:([^\\]]+)]"), "")
-        .trim()
-    val isVoice = !isUser && voiceText.isNotEmpty()
-
-    val biliPattern = BILI_URL_REGEX
-    val biliUrls = biliPattern.findAll(displayText)
-        .map { it.value.trimEnd(')', ']', '】', '。', '，', '！', '？') }
-        .distinct()
-        .toList()
-    val webPattern = URL_REGEX
-    val webUrls = webPattern.findAll(displayText)
-        .map { it.value.trimEnd(')', ']', '】', '。', '，', '！', '？') }
-        .filterNot { biliPattern.containsMatchIn(it) }
-        .distinct()
-        .toList()
-    val bodyText = webPattern.replace(displayText, "")
-        .replace(Regex("\\n{3,}"), "\n\n")
-        .trim()
-    var expanded by remember(message.id) { mutableStateOf(false) }
-    val isLongText = bodyText.length > 600
-
-    val segmentSource = contentForText
-        .replace(mediaRegex, "")
-        .replace(Regex("\\[图片:([^\\]]+)]"), "")
-        .let { webPattern.replace(it, "") }
-        .trim()
-    val segments = remember(message.id, segmentSource) {
-        if (
-            !isUser && fileMatch == null && imageKeys.isEmpty() && mediaItems.isEmpty() &&
-            biliUrls.isEmpty() && webUrls.isEmpty()
-        ) {
-            parseChatSegments(segmentSource)
-        } else {
-            emptyList()
-        }
-    }
-    if (segments.size > 1 || segments.any { it is ChatSegment.Voice }) {
-        val time = messageTime(message.createdAt)
-        val label = buildString {
-            append("大肥鱼")
-            append(" · ")
-            append(channel)
-            if (time.isNotEmpty()) {
-                append("  ")
-                append(time)
-            }
-        }
-        SegmentedMessage(message.id, label, segments, animateSegments, onSpeak, onPrefetch, onReveal)
-        return
-    }
-
-        LaunchedEffect(isVoice, voiceText) {
-            if (isVoice) onPrefetch(voiceText)
-        }
-
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalAlignment = if (isUser) Alignment.End else Alignment.Start,
-    ) {
-        val time = messageTime(message.createdAt)
-        Text(
-            text = buildString {
-                append(if (isUser) "我" else "大肥鱼")
-                append(" · ")
-                append(channel)
-                if (time.isNotEmpty()) {
-                    append("  ")
-                    append(time)
-                }
-            },
-            style = MaterialTheme.typography.labelSmall,
-            color = Color(0xFF8A8A8A),
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
-        )
-        if (bodyText.isNotEmpty() || imageKeys.isNotEmpty() || biliUrls.isNotEmpty() || webUrls.isNotEmpty() || mediaItems.isNotEmpty() || fileMatch != null) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
-                verticalAlignment = Alignment.Bottom,
-            ) {
-            if (isUser) {
-                ReadStatus(failed = false)
-                Spacer(Modifier.width(4.dp))
-            }
-            if (!isUser) {
-                AvatarBadge(isUser = false)
-                Spacer(Modifier.width(6.dp))
-            }
-            val bubbleShape = if (isUser) {
-                RoundedCornerShape(topStart = 20.dp, topEnd = 8.dp, bottomEnd = 20.dp, bottomStart = 20.dp)
-            } else {
-                RoundedCornerShape(topStart = 8.dp, topEnd = 20.dp, bottomEnd = 20.dp, bottomStart = 20.dp)
-            }
-            Surface(
-                modifier = Modifier
-                    .widthIn(max = 330.dp)
-                    // 两层阴影：近层贴着纸面给厚度，远层往四周散给高度。
-                    // 原来只有一层 9dp，既不像贴着也不像浮着，看起来就是张贴纸。
-                    .shadow(2.dp, bubbleShape, spotColor = Color(0x1F4C3F8F), ambientColor = Color.Transparent)
-                    .shadow(
-                        14.dp,
-                        bubbleShape,
-                        spotColor = if (isUser) Color(0x1A6C5CE7) else Color(0x146C5CE7),
-                        ambientColor = Color(0x0A000000),
-                    )
-                    // 上到下 6% 的明度差：肉眼说不出，但气泡会变成受光的曲面
-                    .background(
-                        Brush.verticalGradient(
-                            if (isUser) listOf(Color(0xFFF4EFFF), Color(0xFFE4DAFF))
-                            else listOf(Color(0xFFFFFFFF), Color(0xFFF7F5FF)),
-                        ),
-                        bubbleShape,
-                    )
-                    // 上亮下暗的描边 = 光从左上来
-                    .border(
-                        1.dp,
-                        Brush.verticalGradient(listOf(Color(0x66FFFFFF), Color(0x146C5CE7))),
-                        bubbleShape,
-                    ),
-                shape = bubbleShape,
-                color = Color.Transparent,
-                shadowElevation = 0.dp,
-            ) {
-                Column(
-                    modifier = Modifier.padding(horizontal = 15.dp, vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    if (bodyText.isNotEmpty()) {
-                        Text(
-                            replaceFaceMarkers(bodyText),
-                            style = MaterialTheme.typography.bodyMedium.copy(
-                                lineHeight = 22.sp,
-                                letterSpacing = 0.15.sp,
-                            ),
-                            maxLines = if (expanded || !isLongText) 30 else 8,
-                            overflow = TextOverflow.Ellipsis,
-                            color = Color(0xFF26232E),
-                        )
-                    }
-                    if (fileMatch != null) {
-                        FileMessageCard(fileName, fileSize, fileMime, fileContent)
-                    }
-                    if (isLongText) {
-                        TextButton(
-                            onClick = { expanded = !expanded },
-                            contentPadding = PaddingValues(0.dp),
-                        ) {
-                            Text(if (expanded) "收起" else "展开全文")
-                        }
-                    }
-                    imageKeys.forEach { key ->
-                        MessageImage(api, key)
-                    }
-                    mediaItems.forEach { (kind, key) ->
-                        MediaBubble(api, key, isGif = kind.equals("GIF", ignoreCase = true))
-                    }
-                    biliUrls.forEach { url ->
-                        BilibiliCardQQ(api, url, biliCookie)
-                    }
-                    webUrls.forEach { url ->
-                        WebLinkCard(api, url)
-                    }
-                }
-            }
-            if (isUser) {
-                Spacer(Modifier.width(6.dp))
-                AvatarBadge(isUser = true)
-            }
-            }
-        }
-        if (isVoice) {
-            Spacer(Modifier.height(7.dp))
-            VoiceMessageBubble(voiceText, onPlay = { onSpeak(voiceText) })
-        }
-    }
-}
-
-@Composable
-private fun MediaBubble(api: ApiClient, key: String, isGif: Boolean) {
-    if (isGif) GifBubble(api, key) else VideoBubble(api, key)
-}
-
-@Composable
-private fun VideoBubble(api: ApiClient, key: String) {
-    val context = LocalContext.current
-    // 本地有缓存就放本地，没有先走网络流；同时后台把整段视频落地，下次直接命中。
-    val cachedFile = remember(key) { api.cachedMediaFile(key) }
-    val player = remember(key, cachedFile) { MediaCaches.player(context, api, key, cachedFile) }
-    LaunchedEffect(key) {
-        if (cachedFile == null) runCatching { api.mediaFile(key) }
-    }
-    DisposableEffect(player) {
-        onDispose { player.pause() }
-    }
-    AndroidView(
-        factory = { ctx ->
-            PlayerView(ctx).apply {
-                this.player = player
-                useController = true
-                setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS)
-                setBackgroundColor(android.graphics.Color.BLACK)
-            }
-        },
-        modifier = Modifier
-            .width(240.dp)
-            .height(135.dp)
-            .clip(RoundedCornerShape(12.dp)),
-    )
-}
-
-@Composable
-private fun GifBubble(api: ApiClient, key: String) {
-    var drawable by remember(key) { mutableStateOf(MediaCaches.image(key)) }
-    var failed by remember(key) { mutableStateOf(false) }
-    var attempt by remember(key) { mutableStateOf(0) }
-    LaunchedEffect(key, attempt) {
-        if (drawable == null) {
-            failed = false
-            runCatching { api.mediaBytes(key) }
-                .onSuccess { bytes ->
-                    val decoded = ImageDecoder.decodeDrawable(
-                        ImageDecoder.createSource(java.nio.ByteBuffer.wrap(bytes))
-                    )
-                    (decoded as? AnimatedImageDrawable)?.start()
-                    MediaCaches.putImage(key, decoded)
-                    drawable = decoded
-                }
-                .onFailure { failed = true }
-        }
-    }
-    val gif = drawable
-    if (gif != null) {
-        (gif as? AnimatedImageDrawable)?.start()
-        AndroidView(
-            factory = { ctx ->
-                ImageView(ctx).apply {
-                    scaleType = ImageView.ScaleType.FIT_CENTER
-                    setImageDrawable(gif)
-                }
-            },
-            modifier = Modifier
-                .width(220.dp)
-                .heightIn(max = 260.dp)
-                .clip(RoundedCornerShape(12.dp)),
-        )
-    } else {
-        Box(
-            modifier = Modifier
-                .width(220.dp)
-                .height(120.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(Color(0xFFF0EEF6))
-                .clickable(enabled = failed) {
-                    failed = false
-                    attempt++
-                },
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                if (failed) "动态加载失败，点此重试" else "动态加载中…",
-                style = MaterialTheme.typography.labelSmall,
-                color = Color(0xFF888888),
-            )
-        }
-    }
-}
-
-@Composable
-private fun MessageImage(api: ApiClient, key: String) {
-    var drawable by remember(key) {
-        // 刚发出的图先吃本地那份，别等网络回来（否则会先空一下再显示）
-        mutableStateOf(
-            MediaCaches.image(key) ?: MediaCaches.claimOutgoing()?.also { MediaCaches.putImage(key, it) },
-        )
-    }
-    LaunchedEffect(key) {
-        if (drawable == null) {
-            runCatching { api.image(key) }.onSuccess { bytes ->
-                runCatching {
-                    val decoded = ImageDecoder.decodeDrawable(
-                        ImageDecoder.createSource(java.nio.ByteBuffer.wrap(bytes))
-                    )
-                    (decoded as? AnimatedImageDrawable)?.start()
-                    decoded
-                }.onSuccess {
-                    MediaCaches.putImage(key, it)
-                    drawable = it
-                }
-            }
-        }
-    }
-    drawable?.let { image ->
-        (image as? AnimatedImageDrawable)?.start()
-        AndroidView(
-            factory = { ctx ->
-                ImageView(ctx).apply {
-                    scaleType = ImageView.ScaleType.FIT_CENTER
-                    adjustViewBounds = true
-                    setImageDrawable(image)
-                }
-            },
-            modifier = Modifier
-                .width(220.dp)
-                .heightIn(max = 260.dp)
-                .clip(RoundedCornerShape(12.dp)),
-        )
-    }
-}
 
 /** 规划轮：只让模型点名它看不清的时间点，不产出回复正文。 */
 private const val LOOK_PLAN_RULE =
