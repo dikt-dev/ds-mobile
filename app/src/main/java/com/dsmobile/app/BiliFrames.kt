@@ -132,7 +132,16 @@ object BiliFrames {
             val totalCells = perSheet * urls.size
             val valid = if (timestamps.isNotEmpty()) min(timestamps.size, totalCells) else totalCells
             if (valid <= 0) return@withContext emptyList()
-            val picks = min(outCols * outRows, valid)
+            // 4:40 的视频只给 6-9 帧，等于 30-47 秒才看一眼，中间全靠猜。
+            // 按时长给 1-3 张宫格：≤2 分钟 1 张，≤4 分钟 2 张，更长 3 张。
+            val durationSec = timestamps.lastOrNull() ?: 0.0
+            val sheetCount = when {
+                durationSec <= 120.0 -> 1
+                durationSec <= 240.0 -> 2
+                else -> 3
+            }
+            val cellsPer = outCols * outRows
+            val picks = min(cellsPer * sheetCount, valid)
             val even = (0 until picks).map {
                 if (picks == 1) 0 else it * (valid - 1) / (picks - 1)
             }
@@ -177,6 +186,12 @@ object BiliFrames {
             val scale = maxSide / 720f
 
             val grid = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888)
+            val cellsPerGrid = outCols * outRows
+            val groupCount = ((positions.size + cellsPerGrid - 1) / cellsPerGrid).coerceAtLeast(1)
+            val grids = ArrayList<Bitmap>(groupCount)
+            val candidates = mutableListOf<Bitmap>()
+            for (g in 0 until groupCount) {
+            val grid = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888)
             val canvas = Canvas(grid)
             canvas.drawColor(Color.BLACK)
             val paint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -191,8 +206,10 @@ object BiliFrames {
                 textSize = 14f * scale
                 setShadowLayer(3f, 1f, 1f, Color.BLACK)
             }
-            val candidates = mutableListOf<Bitmap>()
-            positions.forEachIndexed { i, base ->
+            val from = g * cellsPerGrid
+            val to = min(from + cellsPerGrid, positions.size)
+            val slice = positions.subList(from, to)
+            slice.forEachIndexed { i, base ->
                 // 纯黑转场帧对模型没用；就近找一个亮一点的帧替代（最多挪 3 格）
                 var frame: Bitmap? = null
                 var usedIndex = base
@@ -228,17 +245,25 @@ object BiliFrames {
                 }
                 candidates.add(picked)
             }
+            grids.add(grid)
+            }
             // debug 包把成品宫格落一份，方便 adb 拉出来核对（release 不写）
             if (dumpDebug) {
                 runCatching {
                     cacheDir?.let { dir ->
-                        File(dir, "bili-grid-debug.jpg").outputStream().use { out ->
-                            grid.compress(Bitmap.CompressFormat.JPEG, 85, out)
+                        grids.forEachIndexed { idx, bmp ->
+                            File(dir, "bili-grid-debug-$idx.jpg").outputStream().use { out ->
+                                bmp.compress(Bitmap.CompressFormat.JPEG, 85, out)
+                            }
                         }
-                        Log.i("BiliFrames", "grid debug saved valid=$valid")
+                        Log.i("BiliFrames", "grid debug saved valid=$valid grids=${grids.size}")
                     }
                 }
             }
+            // 关键帧就是宫格里的同一张位图、同样分辨率，单独再发一遍只会让模型
+            // 把"同一张图"当成多张照片，还白花一份图片 token（每张 384）。
+            candidates.forEach { runCatching { it.recycle() } }
+            grids
             // 关键帧就是宫格里的同一张位图、同样分辨率，单独再发一遍只会让模型
             // 把"同一张图"当成多张照片，还白花一份图片 token（每张 384）。
             candidates.forEach { runCatching { it.recycle() } }
