@@ -6,8 +6,9 @@ import java.security.MessageDigest
 /** 简单的媒体磁盘缓存：跨 App 重启保留图片/GIF 字节。 */
 class MediaDiskCache(
     private val dir: File,
-    private val maxBytes: Long = 1024L * 1024 * 1024,
-    private val maxFiles: Int = 5000,
+    // 用户说了不够再加：先按 4GB / 2 万个文件，真占满了再调
+    private val maxBytes: Long = 4096L * 1024 * 1024,
+    private val maxFiles: Int = 20000,
 ) {
     init {
         runCatching { dir.mkdirs() }

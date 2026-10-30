@@ -1084,7 +1084,7 @@ private fun ChatScreen(
             ) {
                 Box(
                     modifier = Modifier
-                        .size(48.dp)
+                        .size(54.dp)
                         .shadow(
                             8.dp,
                             CircleShape,
@@ -1202,6 +1202,11 @@ private fun ChatScreen(
                 val older = reversedMessages.getOrNull(index + 1)
                 if (older == null || messageDay(older.createdAt) != messageDay(message.createdAt)) {
                     DayDivider(messageDay(message.createdAt))
+                }
+                // 同一个人连着说时贴紧，换人留一口气——全一样间距会糊成一片
+                val sameSpeaker = older != null && older.role == message.role
+                if (older != null && !sameSpeaker) {
+                    Spacer(Modifier.height(12.dp))
                 }
                 MessageBubble(
                     message = message,
@@ -2100,7 +2105,7 @@ private fun SegmentedMessage(
         verticalArrangement = Arrangement.spacedBy(7.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            AvatarBadge(isUser = false, size = 22.dp)
+            AvatarBadge(isUser = false, size = 24.dp)
             Spacer(Modifier.width(6.dp))
             Text(
                 label,
@@ -2120,13 +2125,14 @@ private fun SegmentedMessage(
                     )
                     Surface(
                         modifier = Modifier
-                            .widthIn(max = 316.dp)
+                            .widthIn(max = 330.dp)
                             .shadow(2.dp, bubbleShape, spotColor = Color(0x1F4C3F8F), ambientColor = Color.Transparent)
-                    .shadow(14.dp, bubbleShape, spotColor = Color(0x1F6C5CE7), ambientColor = Color(0x0A000000)),
-                        shape = bubbleShape,
-                        color = Color.White,
-                        border = BorderStroke(1.dp, Color(0x126C5CE7)),
-                        shadowElevation = 0.dp,
+                            .shadow(14.dp, bubbleShape, spotColor = Color(0x146C5CE7), ambientColor = Color(0x0A000000))
+                            .background(Brush.verticalGradient(listOf(Color(0xFFFFFFFF), Color(0xFFF7F5FF))), bubbleShape)
+                            .border(1.dp, Brush.verticalGradient(listOf(Color(0x66FFFFFF), Color(0x146C5CE7))), bubbleShape),
+                            shape = bubbleShape,
+                            color = Color.Transparent,
+                            shadowElevation = 0.dp,
                     ) {
                         Text(
                             replaceFaceMarkers(segment.text),
@@ -2569,13 +2575,14 @@ private fun StreamingBubble(text: String, onReveal: () -> Unit) {
                         )
                         Surface(
                             modifier = Modifier
-                                .widthIn(max = 316.dp)
+                                .widthIn(max = 330.dp)
                                 .shadow(2.dp, bubbleShape, spotColor = Color(0x1F4C3F8F), ambientColor = Color.Transparent)
-                    .shadow(14.dp, bubbleShape, spotColor = Color(0x1F6C5CE7), ambientColor = Color(0x0A000000)),
-                            shape = bubbleShape,
-                            color = Color.White,
-                            border = BorderStroke(1.dp, Color(0x126C5CE7)),
-                            shadowElevation = 0.dp,
+                                .shadow(14.dp, bubbleShape, spotColor = Color(0x146C5CE7), ambientColor = Color(0x0A000000))
+                                .background(Brush.verticalGradient(listOf(Color(0xFFFFFFFF), Color(0xFFF7F5FF))), bubbleShape)
+                                .border(1.dp, Brush.verticalGradient(listOf(Color(0x66FFFFFF), Color(0x146C5CE7))), bubbleShape),
+                                shape = bubbleShape,
+                                color = Color.Transparent,
+                                shadowElevation = 0.dp,
                         ) {
                             Text(
                                 replaceFaceMarkers(segment.text),
@@ -2671,7 +2678,7 @@ private fun PendingBubble(
             )
             Surface(
                 modifier = Modifier
-                    .widthIn(max = 316.dp)
+                    .widthIn(max = 330.dp)
                     .shadow(2.dp, bubbleShape, spotColor = Color(0x1F4C3F8F), ambientColor = Color.Transparent)
                     .shadow(14.dp, bubbleShape, spotColor = Color(0x2A6C5CE7), ambientColor = Color(0x0A000000)),
                 shape = bubbleShape,
@@ -2724,7 +2731,7 @@ private fun PendingBubble(
 
 /** 头像：AI 用设定图，用户用一张占位图；尺寸可缩到 18dp 放小标题行。 */
 @Composable
-private fun AvatarBadge(isUser: Boolean, size: androidx.compose.ui.unit.Dp = 38.dp) {
+private fun AvatarBadge(isUser: Boolean, size: androidx.compose.ui.unit.Dp = 44.dp) {
     Box(
         modifier = Modifier
             .size(size)
@@ -2905,7 +2912,7 @@ private fun MessageBubble(
             }
             Surface(
                 modifier = Modifier
-                    .widthIn(max = 316.dp)
+                    .widthIn(max = 330.dp)
                     // 两层阴影：近层贴着纸面给厚度，远层往四周散给高度。
                     // 原来只有一层 9dp，既不像贴着也不像浮着，看起来就是张贴纸。
                     .shadow(2.dp, bubbleShape, spotColor = Color(0x1F4C3F8F), ambientColor = Color.Transparent)

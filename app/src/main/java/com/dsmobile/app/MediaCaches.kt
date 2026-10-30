@@ -20,7 +20,8 @@ import com.dsmobile.app.net.WebPreview
  * - 视频 ExoPlayer 实例，避免划走再划回来重新 prepare
  */
 object MediaCaches {
-    private val images = LruCache<String, Drawable>(24)
+    // 动图解码很贵，多留一些在内存里，滑回去不用重解
+    private val images = LruCache<String, Drawable>(48)
     private val bili = LruCache<String, BiliPreview>(32)
     private val web = LruCache<String, WebPreview>(32)
     private val players = mutableMapOf<String, ExoPlayer>()
