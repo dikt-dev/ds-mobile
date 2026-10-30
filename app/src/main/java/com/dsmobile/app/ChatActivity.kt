@@ -538,22 +538,15 @@ private fun ChatScreen(
         // 规划轮 record=false，不写 D1、不进记忆，用户在界面上也看不到。
         val detailFrames = if (frames.isNotEmpty() && bili != null && usingPlayUrl.isNotBlank()) {
             runCatching {
-                val dur = bili.storyboardIndex.lastOrNull() ?: 0.0
+                val dur = if (bili.duration > 0) bili.duration.toDouble()
+                else (bili.storyboardIndex.lastOrNull() ?: 0.0)
                 if (dur < 150.0) {
                     emptyList()
                 } else {
-                    val plan = api.chatWithImages(
-                        outgoing + "\n\n" + LOOK_PLAN_RULE,
-                        frames.map { bitmapToDataUrl(it) },
-                        null,
-                        transient = true,
-                        record = false,
-                    )
-                    val times = parseLookTimes(plan)
-                    android.util.Log.i(
-                        "BiliAi",
-                        "plan=[" + plan.take(40).replace("\n", " ") + "] times=" + times.size,
-                    )
+                    // 不再花一轮模型调用去决定看哪里（那一步要 6 秒）。
+                    // 取 1/3、2/3 处，并对齐到最近的一句台词：说话的地方就是有事发生的地方。
+                    val times = pickDetailTimes(dur, bili.subtitle)
+                    android.util.Log.i("BiliAi", "detail times=" + times.joinToString())
                     if (times.isEmpty()) emptyList()
                     else BiliFrames.detailFrames(usingPlayUrl, context.cacheDir, times, bili.bvid)
                 }
@@ -3152,4 +3145,20 @@ private fun parseLookTimes(reply: String): List<Double> {
         .filter { it > 0.5 }
         .distinct()
         .take(2)
+}
+
+/** 二次抽帧的时间点：1/3、2/3 处，就近吸附到台词时间戳。 */
+private fun pickDetailTimes(durationSec: Double, subtitle: String): List<Double> {
+    if (durationSec <= 0) return emptyList()
+    val marks = Regex("(?m)^(\\d{1,2}):(\\d{2})\\s").findAll(subtitle)
+        .mapNotNull { m ->
+            val min = m.groupValues[1].toIntOrNull() ?: return@mapNotNull null
+            val sec = m.groupValues[2].toIntOrNull() ?: return@mapNotNull null
+            (min * 60 + sec).toDouble()
+        }
+        .toList()
+    val targets = listOf(durationSec * 0.33, durationSec * 0.66)
+    return targets.map { target ->
+        marks.minByOrNull { kotlin.math.abs(it - target) } ?: target
+    }.distinct().sorted()
 }
