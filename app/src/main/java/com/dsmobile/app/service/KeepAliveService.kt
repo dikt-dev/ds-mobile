@@ -98,7 +98,6 @@ class KeepAliveService : Service() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val notifiedMessageIds = java.util.Collections.synchronizedSet(mutableSetOf<Long>())
-    private var loopJob: Job? = null
     private var eventJob: Job? = null
     private var heartbeatJob: Job? = null
     private var proactiveJob: Job? = null
@@ -111,7 +110,6 @@ class KeepAliveService : Service() {
         startForegroundCompat(buildNotification("正在启动…"))
         running = true
         lastStatus = "正在启动…"
-        loopJob = scope.launch { pollLoop() }
         eventJob = scope.launch {
             delay(1_500)
             eventLoop()
@@ -147,7 +145,6 @@ class KeepAliveService : Service() {
 
     override fun onDestroy() {
         running = false
-        loopJob?.cancel()
         eventJob?.cancel()
         heartbeatJob?.cancel()
         proactiveJob?.cancel()
@@ -158,19 +155,16 @@ class KeepAliveService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    private suspend fun pollLoop() {
-        while (scope.isActive) {
-            val status = try {
-                checkHealth()
-            } catch (e: Exception) {
-                "ERR ${e.javaClass.simpleName}: ${e.message ?: ""}"
-            }
-            lastStatus = status
-            lastTime = System.currentTimeMillis()
-            updateNotification(status)
-            Log.d(TAG, "health=$status")
-            delay(3_000)
-        }
+    /**
+     * 连接状态由消息轮询顺手更新，不再单独探测。
+     *
+     * 原来是每 3 秒打一次 /api/health：那接口要查一次 D1、读一次 KV，
+     * 一天 28800 次请求，全是为了给通知栏刷一行时间戳。现在零额外请求。
+     */
+    private fun markConnection(ok: Boolean) {
+        lastStatus = if (ok) "已连接" else "重连中…"
+        lastTime = System.currentTimeMillis()
+        updateNotification(lastStatus)
     }
 
     /** 5 分钟一次心跳；Worker 3 小时收不到才会认为通道掉线。 */
@@ -264,8 +258,10 @@ class KeepAliveService : Service() {
                     after = next
                 }
                 if (last != settings.lastEventId) settings.lastEventId = last
+                markConnection(true)
             } catch (e: Exception) {
                 Log.w(TAG, "event poll failed: ${e.message}")
+                markConnection(false)
             }
             delay(5_000)
         }
