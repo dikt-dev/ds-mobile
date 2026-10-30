@@ -121,6 +121,7 @@ import com.dsmobile.app.net.WebPreview
 import java.io.ByteArrayOutputStream
 import java.io.File
 import com.dsmobile.app.parse.DocumentParser
+import com.dsmobile.app.speech.TtsConfigSync
 import com.dsmobile.app.speech.TtsManager
 import com.dsmobile.app.speech.VoiceRecorder
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -165,6 +166,8 @@ class ChatActivity : ComponentActivity() {
         }
         val settings = SettingsStore(this)
         val db = AppDatabase.get(this)
+        // 每次开 App 同步一次语音参数：网页端靠它合成，和手机声音保持一致。
+        TtsConfigSync.push(settings)
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
@@ -1648,6 +1651,7 @@ private fun SettingsDialog(
                 settings.azureStyleDegree = styleDegree
                 settings.biliSessdata = biliSessdata
                 settings.sshPublicKey = sshKey
+                TtsConfigSync.push(settings)
                 onDismiss()
             }) { Text("保存") }
         },
