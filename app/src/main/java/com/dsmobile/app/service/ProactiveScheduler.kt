@@ -35,6 +35,16 @@ object ProactiveScheduler {
     /** 超过计划时刻这么久就不再弹通知（只等下次打开 App 看）。 */
     const val NOTIFY_DEADLINE_MINUTES = 30L
 
+    /**
+     * 离目标时刻小于这么久才允许发请求。
+     *
+     * 闹钟故意提前 12 分钟挂（吸收 Doze 延迟），但提前醒来时服务端那边还没准备好，
+     * 拉回来的永远是 0 条——白醒一次、白耗一次电量。提前超过 1 分钟就只把闹钟
+     * 挪到目标前 1 分钟，不发请求。
+     */
+    const val MIN_LEAD_MS = 60_000L
+    private const val REARM_REQUEST = 300
+
     private const val MAX_SLOTS = 4
     private const val RETRY_REQUEST_BASE = 100
     private const val RETRY_MAX = 2
@@ -112,6 +122,19 @@ object ProactiveScheduler {
         Log.i(TAG, "retry=$retry scheduled for $slotKey at +${RETRY_DELAY_MS / 60_000}min")
     }
 
+    /**
+     * 「醒太早」时把闹钟挪到目标时刻前 1 分钟。
+     *
+     * 只移一次：挪过去的闹钟触发时已满足 MIN_LEAD_MS，会正常发请求。
+     */
+    fun rearmNear(context: Context, slotKey: String, targetMs: Long) {
+        // 挪到目标前 45 秒：比 MIN_LEAD_MS（60 秒）留 15 秒余量，
+        // 否则新闹钟自己也会被判成「太早」，来回挪个没完。
+        val triggerAt = maxOf(System.currentTimeMillis() + 5_000L, targetMs - 45_000L)
+        setAlarm(context, REARM_REQUEST, triggerAt, slotKey, targetMs, 0)
+        Log.i(TAG, "rearmed " + slotKey + " in " + (triggerAt - System.currentTimeMillis()) / 1000 + "s")
+    }
+
     /** 调试用：N 秒后立刻跑一次检查，验证「醒来 → 拉消息 → 通知」链路。 */
     fun triggerIn(context: Context, seconds: Long) {
         val at = System.currentTimeMillis() + seconds * 1000
@@ -128,6 +151,7 @@ object ProactiveScheduler {
             manager.cancel(pendingFor(context, RETRY_REQUEST_BASE + i, "", 0L, i))
         }
         manager.cancel(pendingFor(context, 200, "debug", 0L, 0))
+        manager.cancel(pendingFor(context, REARM_REQUEST, "", 0L, 0))
     }
 
     /** 记一次唤醒：调试页据此看「计划时刻 vs 实际醒来」的延迟分布。 */

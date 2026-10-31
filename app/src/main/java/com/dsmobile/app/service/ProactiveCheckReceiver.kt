@@ -65,6 +65,15 @@ class ProactiveCheckReceiver : BroadcastReceiver() {
         val token = settings.token ?: return true
         val api = ApiClient(settings.baseUrl, token)
 
+        // 提前超过 1 分钟醒来：服务端窗口还没开，请求必然空手而归。
+        // 直接把这个闹钟挪到目标前 1 分钟，省一次请求和一次心跳。
+        val now = System.currentTimeMillis()
+        if (targetMs > 0L && now < targetMs - ProactiveScheduler.MIN_LEAD_MS) {
+            Log.i(TAG, "too early by " + (targetMs - now) / 60_000 + "min, rearm slot=" + slotKey)
+            ProactiveScheduler.rearmNear(app, slotKey, targetMs)
+            return true
+        }
+
         // 拉取即心跳：服务端据此知道这台设备是「闹钟模式」，不再等 5 秒一次的轮询
         runCatching { api.heartbeat("ds-mobile/alarm") }
 
