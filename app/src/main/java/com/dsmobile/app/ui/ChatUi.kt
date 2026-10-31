@@ -1070,7 +1070,8 @@ fun MessageItem(
         if (showMeta) {
             MetaRow(
                 name = "大肥鱼",
-                channel = channel,
+                // 主动消息单独标一下：她不是被问出来的，是自己冒出来的
+                channel = if (message.proactiveKind != null) "主动" else channel,
                 time = messageTime(message.createdAt),
                 isUser = isUser,
             )

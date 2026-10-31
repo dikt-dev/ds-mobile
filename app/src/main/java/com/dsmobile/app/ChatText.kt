@@ -166,6 +166,15 @@ internal fun parseChatSegments(raw: String): List<ChatSegment> {
     return out
 }
 
+/** 当天第几分钟，用来判断两条消息之间隔了多久；解析失败返回 -1。 */
+internal fun minutesOfDay(raw: String): Int {
+    val t = messageTime(raw)
+    if (t.length != 5) return -1
+    val h = t.substring(0, 2).toIntOrNull() ?: return -1
+    val m = t.substring(3, 5).toIntOrNull() ?: return -1
+    return h * 60 + m
+}
+
 internal fun messageTime(raw: String): String {
     val time = raw.substringAfter('T', "").take(5)
     return if (time.length == 5) time else ""

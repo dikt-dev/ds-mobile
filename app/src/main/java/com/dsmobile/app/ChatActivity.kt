@@ -1118,8 +1118,18 @@ private fun ChatScreen(
                     if (newDay) {
                         DaySeparator(day)
                     }
+                    // 主动消息总是另起一组：它和半小时前的对话不是同一段，
+                    // 混在一起就看不出来"这句是几点自己冒出来的"。
+                    val gapMinutes = if (older != null && !newDay) {
+                        minutesOfDay(message.createdAt) - minutesOfDay(older.createdAt)
+                    } else {
+                        0
+                    }
+                    val proactiveBreak = message.proactiveKind != null &&
+                        (older == null || older.proactiveKind == null || newDay || gapMinutes >= 10)
                     // 同一个人连着说时贴紧，换人留一口气——全一样间距会糊成一片
-                    val sameSpeaker = older != null && !newDay && older.role == message.role
+                    val sameSpeaker = older != null && !newDay &&
+                        older.role == message.role && !proactiveBreak
                     val nextSameSpeaker = newer != null &&
                         messageDay(newer.createdAt) == day &&
                         newer.role == message.role
