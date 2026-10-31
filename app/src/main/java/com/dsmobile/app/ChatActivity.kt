@@ -392,97 +392,8 @@ private fun ChatScreen(
     val pendingCards = remember { mutableStateMapOf<Long, PendingCard>() }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
+    val syncer = remember(dao, api) { ChatSync(dao, api, failedPendingIds) }
 
-    suspend fun syncEvents() {
-        var after = dao.maxId()
-        val changed = mutableListOf<MessageEntity>()
-        while (true) {
-            val page = api.events(after, 100)
-            if (page.messages.isEmpty()) break
-            changed.addAll(page.messages)
-            val next = page.messages.last().id
-            if (!page.hasMore || next <= after) break
-            after = next
-        }
-        if (changed.isNotEmpty()) dao.applyServerMessages(changed)
-    }
-
-    /** 首装全量补齐；之后只走 syncEvents 增量。 */
-    suspend fun syncAllHistory() {
-        var after = 0L
-        val all = mutableListOf<MessageEntity>()
-        while (true) {
-            val page = api.events(after, 100)
-            if (page.messages.isEmpty()) break
-            all.addAll(page.messages)
-            val next = page.messages.last().id
-            if (!page.hasMore || next <= after) break
-            after = next
-        }
-        if (all.isNotEmpty()) dao.applyServerMessages(all)
-    }
-
-    /**
-     * pending 对账：断网/超时后服务端可能已经落库，本地 pending 不能永远卡在底部。
-     * 服务端按 client_message_id 查；找到就删除 pending，找不到才标记失败。
-     */
-    suspend fun reconcilePending() {
-        val rows = dao.pending()
-        if (rows.isEmpty()) return
-        val ids = rows.map { it.clientMessageId }.filter { it.isNotBlank() }
-        if (ids.isEmpty()) return
-        val found = runCatching { api.clientMessages(ids) }.getOrNull()
-        if (found == null) {
-            // 网络不可用时也要让旧 pending 显示“失败/重试”，不能继续伪装成发送中。
-            rows.forEach { failedPendingIds[it.id] = true }
-            return
-        }
-        if (found.isNotEmpty()) {
-            dao.applyServerMessages(found)
-            val matched = found.mapNotNull { it.clientMessageId }.toSet()
-            rows.filter { it.clientMessageId in matched }.forEach { failedPendingIds.remove(it.id) }
-        }
-        val matched = found.mapNotNull { it.clientMessageId }.toSet()
-        rows.filter { it.clientMessageId !in matched }.forEach { failedPendingIds[it.id] = true }
-    }
-
-    /** 老版本本地库只有最近 300 条；从本地最小 id 往前回填。 */
-    suspend fun backfillOlderHistory() {
-        var before = dao.minId()
-        var guard = 0
-        android.util.Log.i("ChatSync", "backfill start before=$before")
-        while (before > 1 && guard < 200) {
-            val page = api.events(0, 100, beforeId = before)
-            android.util.Log.i(
-                "ChatSync",
-                "backfill page n=${page.messages.size} first=${page.messages.firstOrNull()?.id} " +
-                    "hasMore=${page.hasMore}",
-            )
-            if (page.messages.isEmpty()) break
-            dao.insertAll(page.messages)
-            val next = page.messages.first().id
-            if (next <= 0 || next >= before) break
-            before = next
-            if (!page.hasMore) break
-            guard++
-        }
-        android.util.Log.i("ChatSync", "backfill done before=$before guard=$guard")
-    }
-
-    fun shrinkPhoto(file: File): ByteArray {
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeFile(file.absolutePath, bounds)
-        var sample = 1
-        while (bounds.outWidth / sample > 2048 || bounds.outHeight / sample > 2048) sample *= 2
-        val bitmap = BitmapFactory.decodeFile(
-            file.absolutePath,
-            BitmapFactory.Options().apply { inSampleSize = sample },
-        ) ?: return file.readBytes()
-        val out = java.io.ByteArrayOutputStream()
-        bitmap.compress(Bitmap.CompressFormat.JPEG, 88, out)
-        bitmap.recycle()
-        return out.toByteArray()
-    }
 
     var cameraFile by remember { mutableStateOf<File?>(null) }
     var cameraUri by remember { mutableStateOf<Uri?>(null) }
@@ -587,71 +498,18 @@ private fun ChatScreen(
         val biliCookie = settings.biliCookie.ifBlank {
             if (settings.biliSessdata.isBlank()) "" else "SESSDATA=${settings.biliSessdata}"
         }
-        // 缓存里的 playUrl 会过期（deadline/sign），发之前现取一条
-        val livePlayUrl = if (bili != null && bili.bvid.isNotBlank() && bili.cid > 0) {
-            runCatching { api.freshPlayUrl(bili.bvid, bili.cid, biliCookie) }.getOrDefault("")
-        } else {
-            ""
-        }
-        val usingPlayUrl = livePlayUrl.ifBlank { bili?.playUrl.orEmpty() }
-        val biliDuration = if (bili != null) {
-            if (bili.duration > 0) bili.duration.toDouble()
-            else (bili.storyboardIndex.lastOrNull() ?: 0.0)
-        } else {
-            0.0
-        }
-        val longVideo = bili != null && biliDuration >= 150.0 && usingPlayUrl.isNotBlank()
-        // 规划轮只吃文字，和抽宫格并行跑：它的耗时被宫格的 4 秒吃掉，不再额外加延迟。
-        val paired = coroutineScope {
-            val planDeferred: kotlinx.coroutines.Deferred<List<Double>>? = if (longVideo) async {
-                runCatching {
-                    parseLookTimes(api.chat(textPlanPrompt(bili!!, biliDuration), null, record = false))
-                }.getOrDefault(emptyList<Double>())
-            } else {
-                null
-            }
-            val grids = if (bili != null && bili.storyboardUrl.isNotBlank()) {
-            runCatching {
-                BiliFrames.loadAiFrames(
-                    storyboardUrl = bili.storyboardUrl,
-                    cols = bili.storyboardCols,
-                    rows = bili.storyboardRows,
-                    cookie = biliCookie,
-                    cacheDir = context.cacheDir,
-                    timestamps = bili.storyboardIndex,
-                    spriteUrls = bili.storyboardUrls,
-                    playUrl = usingPlayUrl,
-                    cacheKey = bili.bvid,
-                    dumpDebug = (context.applicationInfo.flags and
-                        android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0,
-                )
-                }.getOrDefault(emptyList())
-            } else {
-                emptyList()
-            }
-            grids to (planDeferred?.await() ?: emptyList())
-        }
-        val frames = paired.first
-        val plannedTimes = paired.second
-        // 长视频：从本地缓存的 MP4 里补原始分辨率帧。
-        // 规划轮 record=false，不写 D1、不进记忆，用户在界面上也看不到。
-        val detailFrames = if (frames.isNotEmpty() && bili != null && usingPlayUrl.isNotBlank()) {
-            runCatching {
-                val dur = biliDuration
-                if (dur < 150.0) {
-                    emptyList()
-                } else {
-                    android.util.Log.i("BiliAi", "text plan times=" + plannedTimes.joinToString())
-                    val times = plannedTimes.ifEmpty { pickDetailTimes(dur, bili.subtitle) }
-                    android.util.Log.i("BiliAi", "detail times=" + times.joinToString())
-                    if (times.isEmpty()) emptyList()
-                    else BiliFrames.detailFrames(usingPlayUrl, context.cacheDir, times, bili.bvid)
-                }
-            }.getOrDefault(emptyList())
-        } else {
-            emptyList()
-        }
-        android.util.Log.i("BiliAi", "frames=" + frames.size + " detail=" + detailFrames.size)
+        // 取帧、抽细节帧、规划时间点都在 ChatBiliSend.prepareBiliMedia 里
+        val media = prepareBiliMedia(
+            api = api,
+            bili = bili,
+            text = text,
+            biliCookie = biliCookie,
+            cacheDir = context.cacheDir,
+            debug = (context.applicationInfo.flags and
+                android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0,
+        )
+        val frames = media.frames
+        val detailFrames = media.detailFrames
         // 带链接/视频时给状态一行提示，但不再固定停 1.5 秒：
         // 卡片在她开口前早就渲染好了，停顿改由"已读到开口"统一承担，避免两段空等叠加。
         val mediaTurn = bili != null || web != null ||
@@ -674,7 +532,7 @@ private fun ChatScreen(
                 val watcher = launch {
                     while (isActive) {
                         delay(700)
-                        runCatching { syncEvents() }
+                        runCatching { syncer.syncEvents() }
                     }
                 }
                 try {
@@ -701,7 +559,7 @@ private fun ChatScreen(
             voices.forEach { TtsManager.prepare(context, settings, it) }
             // 先让 D1 的 user/assistant 落进 Room，再移除本地 pending；
             // 反过来会先删掉自己的气泡，等网络回来才补上，产生可见的空白闪动。
-            syncEvents()
+            syncer.syncEvents()
             dao.deletePending(pendingMessage.copy(id = pendingId))
             failedPendingIds.remove(pendingId)
             pendingCards.remove(pendingId)
@@ -711,7 +569,7 @@ private fun ChatScreen(
             frames.forEach { it.recycle() }
             failedPendingIds[pendingId] = true
             // 502 可能发生在服务端已落库之后；对账一次，避免成功消息还卡在 pending。
-            runCatching { reconcilePending() }
+            runCatching { syncer.reconcilePending() }
             status = "发送失败：${e.message}，可在下方重试"
             streamingText = ""
         } finally {
@@ -780,7 +638,7 @@ private fun ChatScreen(
                         api.chat(if (text.isBlank()) body else "$text\n\n$body", clientId)
                     }
                 }
-                syncEvents()
+                syncer.syncEvents()
                 status = ""
             } catch (e: Exception) {
                 failedPendingIds[pendingId] = true
@@ -1032,14 +890,14 @@ private fun ChatScreen(
             dao.stripLeadingTimeLabels()
             // 首装全量补齐历史；已有旧版本缓存则增量 + 往前回填更早的记录。
             if (dao.maxId() == 0L) {
-                syncAllHistory()
+                syncer.syncAllHistory()
                 // D1 只有最近两天；首装也要继续从 R2 归档把更早的历史回灌。
-                backfillOlderHistory()
+                syncer.backfillOlderHistory()
             } else {
-                syncEvents()
-                backfillOlderHistory()
+                syncer.syncEvents()
+                syncer.backfillOlderHistory()
             }
-            reconcilePending()
+            syncer.reconcilePending()
         } catch (e: Exception) {
             android.util.Log.w("ChatSync", "initial sync failed: ${e.message}", e)
             status = "同步失败：${e.message}"
@@ -1053,7 +911,7 @@ private fun ChatScreen(
         while (true) {
             delay(5_000)
             try {
-                syncEvents()
+                syncer.syncEvents()
             } catch (_: Exception) {
                 // 后台轮询失败不打断界面，下一轮重试
             }
@@ -1223,7 +1081,7 @@ private fun ChatScreen(
                                     dao.deletePending(message)
                                     failedPendingIds.remove(message.id)
                                     delay(300)
-                                    syncEvents()
+                                    syncer.syncEvents()
                                     status = ""
                                 } catch (e: Exception) {
                                     failedPendingIds[message.id] = true
