@@ -114,6 +114,7 @@ class MainActivity : ComponentActivity() {
         var parseResult by remember { mutableStateOf("") }
         var sttRunning by remember { mutableStateOf(false) }
         var sttResult by remember { mutableStateOf("") }
+    var resyncing by remember { mutableStateOf(false) }
         val scope = rememberCoroutineScope()
 
         LaunchedEffect(Unit) {
@@ -281,6 +282,54 @@ class MainActivity : ComponentActivity() {
                             scope.launch {
                                 com.dsmobile.app.service.ProactiveScheduler.refresh(this@MainActivity)
                             }
+                        },
+                    )
+                    Spacer(Modifier.height(DsSpace.xs))
+                    // 服务端删了消息，本地 Room 不会自己知道（没有墓碑机制），
+                    // 真对不上时用这个：清空本地再从服务端整份重拉。
+                    DsOutlineButton(
+                        text = if (resyncing) "正在重拉…" else "清空本地记录并重新同步",
+                        onClick = {
+                        if (resyncing) return@DsOutlineButton
+                        scope.launch {
+                            resyncing = true
+                            try {
+                                val dao = com.dsmobile.app.data.AppDatabase.get(this@MainActivity).messageDao()
+                                dao.deleteAllMessages()
+                                dao.deleteAllPending()
+                                val settings = SettingsStore(this@MainActivity)
+                                val api = ApiClient(
+                                    settings.baseUrl,
+                                    settings.token,
+                                    settings.biliSessdata,
+                                    settings.biliCookie,
+                                )
+                                var after = 0L
+                                var total = 0
+                                while (true) {
+                                    val page = api.events(after, 100)
+                                    if (page.messages.isEmpty()) break
+                                    dao.insertAll(page.messages)
+                                    total += page.messages.size
+                                    val next = page.messages.last().id
+                                    if (!page.hasMore || next <= after) break
+                                    after = next
+                                }
+                                android.widget.Toast.makeText(
+                                    this@MainActivity,
+                                    "已重拉 $total 条",
+                                    android.widget.Toast.LENGTH_SHORT,
+                                ).show()
+                            } catch (e: Exception) {
+                                android.widget.Toast.makeText(
+                                    this@MainActivity,
+                                    "重拉失败：${e.message}",
+                                    android.widget.Toast.LENGTH_LONG,
+                                ).show()
+                            } finally {
+                                resyncing = false
+                            }
+                        }
                         },
                     )
                 }

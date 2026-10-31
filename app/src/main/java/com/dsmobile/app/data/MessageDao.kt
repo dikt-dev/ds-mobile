@@ -45,6 +45,13 @@ interface MessageDao {
     @Delete
     suspend fun deletePending(message: PendingMessageEntity)
 
+    /** 本地缓存修复：服务端已经删掉的消息，本地不会自己消失，得整表重来。 */
+    @Query("DELETE FROM messages")
+    suspend fun deleteAllMessages()
+
+    @Query("DELETE FROM pending_messages")
+    suspend fun deleteAllPending()
+
     @Query("DELETE FROM pending_messages WHERE clientMessageId IN (:ids)")
     suspend fun deletePendingByClientIds(ids: List<String>)
 
