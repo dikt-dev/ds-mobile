@@ -20,3 +20,4 @@ build-log.txt
 push.log
 build*.log
 *.log
+hs_err_pid*.log
