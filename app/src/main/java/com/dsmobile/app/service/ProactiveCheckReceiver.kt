@@ -37,6 +37,20 @@ class ProactiveCheckReceiver : BroadcastReceiver() {
         val targetMs = intent.getLongExtra(EXTRA_TARGET_MS, 0L)
         val retry = intent.getIntExtra(EXTRA_RETRY, 0)
 
+        // 翻页闹钟：只重算当天计划（顺带把自己推到明天），不发请求
+        if (slotKey == "rollover") {
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    ProactiveScheduler.refresh(app)
+                } catch (t: Throwable) {
+                    Log.w(TAG, "rollover refresh failed: ${t.message}")
+                } finally {
+                    pending.finish()
+                }
+            }
+            return
+        }
+
         CoroutineScope(Dispatchers.IO).launch {
             var delivered = false
             try {

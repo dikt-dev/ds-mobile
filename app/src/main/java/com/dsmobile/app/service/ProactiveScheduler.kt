@@ -45,6 +45,9 @@ object ProactiveScheduler {
     const val MIN_LEAD_MS = 60_000L
     private const val REARM_REQUEST = 300
 
+    /** 每天凌晨的「翻页」闹钟：不依赖用户当天打开过 App。 */
+    private const val ROLLOVER_REQUEST = 201
+
     private const val MAX_SLOTS = 4
     private const val RETRY_REQUEST_BASE = 100
     private const val RETRY_MAX = 2
@@ -105,6 +108,8 @@ object ProactiveScheduler {
             scheduled += Scheduled(slot.key, slot.kind, slot.at, triggerAt)
         }
 
+        // 顺带挂明天的翻页闹钟：闹钟只覆盖当天，用户不打开 App 就会整天静默。
+        ensureDailyRollover(app)
         settings.proactiveSchedule = toJson(scheduled)
         Log.i(
             TAG,
@@ -112,6 +117,25 @@ object ProactiveScheduler {
                 scheduled.joinToString { "${it.slotKey}@${it.atLabel}" },
         )
         scheduled
+    }
+
+    /**
+     * 挂一个每天 00:10 的「翻页」闹钟，醒来后重算当天的计划。
+     *
+     * 之前闹钟只在「打开 App / 开机 / 手动重算」时挂，只覆盖当天：
+     * 哪一天没打开过 App，那天就一条提醒都没有（消息还在，只是没人叫你）。
+     * 这个闹钟只做一件事——把第二天的档位挂上，然后把自己推到再下一天。
+     */
+    fun ensureDailyRollover(context: Context) {
+        val zone = ZoneId.systemDefault()
+        val now = System.currentTimeMillis()
+        var target = java.time.LocalDate.now(zone).atTime(0, 10).atZone(zone).toInstant().toEpochMilli()
+        if (target <= now + 60_000L) {
+            target = java.time.LocalDate.now(zone).plusDays(1).atTime(0, 10).atZone(zone)
+                .toInstant().toEpochMilli()
+        }
+        setAlarm(context, ROLLOVER_REQUEST, target, "rollover", 0L, 0)
+        Log.i(TAG, "daily rollover armed for " + java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.CHINA).format(java.util.Date(target)))
     }
 
     /** 醒来没取到消息时的一次重试（最多 RETRY_MAX 次，都在窗口内）。 */
@@ -152,6 +176,7 @@ object ProactiveScheduler {
         }
         manager.cancel(pendingFor(context, 200, "debug", 0L, 0))
         manager.cancel(pendingFor(context, REARM_REQUEST, "", 0L, 0))
+        manager.cancel(pendingFor(context, ROLLOVER_REQUEST, "", 0L, 0))
     }
 
     /** 记一次唤醒：调试页据此看「计划时刻 vs 实际醒来」的延迟分布。 */

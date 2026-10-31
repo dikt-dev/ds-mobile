@@ -241,6 +241,10 @@ class ChatActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        // 每次回到聊天页都对一次账：闹钟只覆盖当天，进前台就该把今天剩下的档位挂上
+        androidx.lifecycle.lifecycleScope.launch {
+            runCatching { com.dsmobile.app.service.ProactiveScheduler.refresh(this@ChatActivity) }
+        }
         com.dsmobile.app.service.KeepAliveService.appVisible = true
         com.dsmobile.app.service.KeepAliveService.clearMessageNotification(this)
         // HyperOS 有时不遵守 Manifest 的 excludeFromRecents，运行时再设置一次当前任务。
