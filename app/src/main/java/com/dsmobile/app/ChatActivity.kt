@@ -110,6 +110,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.lifecycleScope
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
@@ -242,7 +243,7 @@ class ChatActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         // 每次回到聊天页都对一次账：闹钟只覆盖当天，进前台就该把今天剩下的档位挂上
-        androidx.lifecycle.lifecycleScope.launch {
+        lifecycleScope.launch {
             runCatching { com.dsmobile.app.service.ProactiveScheduler.refresh(this@ChatActivity) }
         }
         com.dsmobile.app.service.KeepAliveService.appVisible = true
