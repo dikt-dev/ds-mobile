@@ -112,34 +112,6 @@ class ApiClient(
         }
 
     /** App 拉主动消息队列：先本地通知，再 ACK 清队列。 */
-    suspend fun proactivePending(limit: Int = 20): List<ProactivePush> = withContext(Dispatchers.IO) {
-        val request = Request.Builder()
-            .url("$baseUrl/api/proactive/pending?limit=$limit")
-            .header("Authorization", "Bearer ${requireToken()}")
-            .get()
-            .build()
-        execute(request).use { response ->
-            val text = response.body?.string().orEmpty()
-            if (!response.isSuccessful) throw ApiException(errorText(response.code, text))
-            val rows = JSONObject(text).optJSONArray("messages") ?: JSONArray()
-            buildList {
-                for (i in 0 until rows.length()) {
-                    val row = rows.optJSONObject(i) ?: continue
-                    val id = row.optLong("id", 0L)
-                    if (id <= 0L) continue
-                    add(
-                        ProactivePush(
-                            queueId = id.toInt(),
-                            content = row.optString("content"),
-                            messageId = if (row.isNull("message_id")) null else row.optLong("message_id"),
-                            createdAt = row.optString("created_at"),
-                        )
-                    )
-                }
-            }
-        }
-    }
-
     /**
      * 今日主动消息计划。
      *
@@ -183,19 +155,6 @@ class ApiClient(
                 slots = parse(root.optJSONArray("slots")),
                 fallback = parse(root.optJSONArray("fallback")),
             )
-        }
-    }
-
-    suspend fun proactiveAck(ids: List<Int>) = withContext(Dispatchers.IO) {
-        if (ids.isEmpty()) return@withContext
-        val body = JSONObject().put("ids", JSONArray(ids))
-        val request = Request.Builder()
-            .url("$baseUrl/api/proactive/ack")
-            .header("Authorization", "Bearer ${requireToken()}")
-            .post(body.toString().toRequestBody(jsonType))
-            .build()
-        execute(request).use { response ->
-            if (!response.isSuccessful) throw ApiException(errorText(response.code, response.body?.string().orEmpty()))
         }
     }
 

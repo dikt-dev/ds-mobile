@@ -121,7 +121,6 @@ class KeepAliveService : Service() {
     private val notifiedMessageIds = java.util.Collections.synchronizedSet(mutableSetOf<Long>())
     private var eventJob: Job? = null
     private var heartbeatJob: Job? = null
-    private var proactiveJob: Job? = null
     private lateinit var settings: SettingsStore
 
     override fun onCreate() {
@@ -138,10 +137,6 @@ class KeepAliveService : Service() {
         heartbeatJob = scope.launch {
             delay(2_500)
             heartbeatLoop()
-        }
-        proactiveJob = scope.launch {
-            delay(4_000)
-            proactiveLoop()
         }
         Log.i(TAG, "service created")
     }
@@ -168,7 +163,6 @@ class KeepAliveService : Service() {
         running = false
         eventJob?.cancel()
         heartbeatJob?.cancel()
-        proactiveJob?.cancel()
         scope.cancel()
         Log.i(TAG, "service destroyed")
         super.onDestroy()
@@ -201,37 +195,6 @@ class KeepAliveService : Service() {
                 }
             }
             delay(5 * 60_000L)
-        }
-    }
-
-    /** 主动消息队列消费者：消息本身走 events；这里 ACK 清队列并保留推送能力。 */
-    private suspend fun proactiveLoop() {
-        while (scope.isActive) {
-            val token = settings.token
-            if (!token.isNullOrBlank()) {
-                try {
-                    val api = ApiClient(settings.baseUrl, token)
-                    val pushes = api.proactivePending()
-                    for (push in pushes) {
-                        val messageId = push.messageId
-                        val alreadyNotified = messageId != null && messageId in notifiedMessageIds
-                        if (!appVisible && !alreadyNotified && push.content.isNotBlank()) {
-                            notifyProactive(
-                                push.content,
-                                messageId ?: push.queueId.toLong(),
-                            )
-                            if (messageId != null) notifiedMessageIds.add(messageId)
-                        }
-                    }
-                    if (pushes.isNotEmpty()) {
-                        api.proactiveAck(pushes.map { it.queueId })
-                        Log.i(TAG, "proactive acked=${pushes.size}")
-                    }
-                } catch (e: Exception) {
-                    Log.w(TAG, "proactive poll failed: ${e.message}")
-                }
-            }
-            delay(30_000)
         }
     }
 
