@@ -99,6 +99,7 @@ import android.widget.ImageView
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.Description
@@ -899,20 +900,39 @@ private fun MetaRow(name: String, channel: String?, time: String, isUser: Boolea
     }
 }
 
+/**
+ * 消息的回执。
+ *
+ * - [SENT]：她那边已经收到了这条（D1 里有了），但还没开口
+ * - [READ]：她的回复已经到这台手机上，才算"读了"
+ *
+ * 中间那一档很重要：从"发出去"到她开口有好几秒，这期间什么都不显示会让人
+ * 怀疑自己没发成功。
+ */
+enum class Receipt { SENT, READ }
+
 @Composable
-private fun ReadMark(failed: Boolean) {
+private fun ReadMark(failed: Boolean, read: Boolean = true) {
     Row(
         modifier = Modifier.padding(top = 4.dp, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            if (failed) "发送失败" else "已读",
+            when {
+                failed -> "发送失败"
+                read -> "已读"
+                else -> "已发送"
+            },
             style = MaterialTheme.typography.labelSmall,
             color = if (failed) Ds.colors.danger else Ds.colors.inkTertiary,
         )
         Spacer(Modifier.width(3.dp))
         Icon(
-            if (failed) Icons.Filled.Close else Icons.Filled.DoneAll,
+            when {
+                failed -> Icons.Filled.Close
+                read -> Icons.Filled.DoneAll
+                else -> Icons.Filled.Done
+            },
             contentDescription = null,
             tint = if (failed) Ds.colors.danger else Ds.colors.inkTertiary,
             modifier = Modifier.size(13.dp),
@@ -927,7 +947,7 @@ fun MessageItem(
     biliCookie: String,
     showMeta: Boolean,
     grouped: Boolean,
-    showRead: Boolean,
+    receipt: Receipt?,
     animate: Boolean,
     onSpeak: (String) -> Unit,
     onPrefetch: (String) -> Unit,
@@ -1023,6 +1043,24 @@ fun MessageItem(
     }
     val useSegments = !isUser && (segments.size > 1 || segments.any { it is ChatSegment.Voice })
 
+    // 「她收到 → 读了 → 停一下 → 才开口」：整条消息的停顿在这里统一处理，
+    // 而不是只对分段回复生效——纯文字回复以前是一到就蹦出来，没有呼吸。
+    val richReply = imageKeys.isNotEmpty() || mediaItems.isNotEmpty() ||
+        biliUrls.isNotEmpty() || webUrls.isNotEmpty() || fileMatch != null
+    val holdMs = if (richReply) READ_HOLD_MEDIA_MS else READ_HOLD_MS
+    var holdDone by remember(message.id) {
+        mutableStateOf(!animate || isUser || revealedMessageIds.contains(message.id))
+    }
+    LaunchedEffect(message.id, animate, isUser) {
+        if (!holdDone) {
+            delay(holdMs)
+            holdDone = true
+            // 非分段回复没有内部动画来收尾，这里替它记账，否则滚动回来会重演一次
+            if (!useSegments) revealedMessageIds.add(message.id)
+            onReveal()
+        }
+    }
+
     LaunchedEffect(isVoice, voiceText) {
         if (isVoice) onPrefetch(voiceText)
     }
@@ -1056,7 +1094,9 @@ fun MessageItem(
                 horizontalAlignment = align,
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                if (useSegments) {
+                if (!holdDone) {
+                    TypingDots()
+                } else if (useSegments) {
                     SegmentedBody(
                         messageId = message.id,
                         segments = segments,
@@ -1093,7 +1133,7 @@ fun MessageItem(
                 }
             }
         }
-        if (isUser && showRead) ReadMark(failed = false)
+        if (isUser && receipt != null) ReadMark(failed = false, read = receipt == Receipt.READ)
     }
 }
 
@@ -1112,18 +1152,13 @@ private fun SegmentedBody(
         voices.forEach { if (it.isNotBlank()) onPrefetch(it) }
     }
     val alreadyRevealed = !animate || revealedMessageIds.contains(messageId)
-    // 先空着（显示"正在输入"），等"已读"亮出来一两秒后再开始逐句显示：
-    // 顺序是「她收到 → 读了 → 停一下 → 才开口」，而不是字和已读一起蹦出来。
+    // 停顿由 MessageItem 统一做（那里的"正在输入"和已读是同一拍），
+    // 这里只管一句一句往外放。
     var visibleCount by remember(messageId) {
-        mutableStateOf(if (alreadyRevealed) segments.size else 0)
+        mutableStateOf(if (alreadyRevealed) segments.size else 1)
     }
     LaunchedEffect(messageId, segments.size, animate) {
         if (animate && !revealedMessageIds.contains(messageId) && segments.isNotEmpty()) {
-            if (visibleCount == 0) {
-                delay(READ_HOLD_MS)
-                visibleCount = 1
-                onReveal()
-            }
             while (visibleCount < segments.size) {
                 delay(1000)
                 visibleCount++
@@ -1131,10 +1166,6 @@ private fun SegmentedBody(
             }
             revealedMessageIds.add(messageId)
         }
-    }
-    if (visibleCount == 0 && segments.isNotEmpty()) {
-        TypingDots()
-        return
     }
     segments.take(visibleCount.coerceAtMost(segments.size)).forEach { segment ->
         when (segment) {
@@ -1247,6 +1278,9 @@ private fun VoiceWaveform(color: Color, modifier: Modifier = Modifier) {
 /** "已读"亮起到她开口之间的停顿（毫秒）。 */
 private const val READ_HOLD_MS = 1500L
 
+/** 她的回复本身就带图/视频/链接时，停顿短一些：看图比读字快，等久了反而假。 */
+private const val READ_HOLD_MEDIA_MS = 600L
+
 @Composable
 private fun TypingDots() {
     val transition = androidx.compose.animation.core.rememberInfiniteTransition(label = "typing")
@@ -1319,9 +1353,46 @@ fun StreamingMessage(text: String, onReveal: () -> Unit) {
     }
 }
 
+/**
+ * 还没发出去的链接卡片。
+ *
+ * `ready = false` 时只画骨架（尺寸和真卡片一致，不预留就会跳），
+ * 解析完原地换成真的卡片——缓存这时已经热了，所以不会再等第二次加载。
+ */
+data class PendingCard(val url: String, val bili: Boolean, val ready: Boolean)
+
+@Composable
+private fun LinkSkeleton() {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(76.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(Ds.colors.surfaceMuted)
+            .padding(horizontal = 10.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(56.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(Ds.colors.surface),
+        )
+        Spacer(Modifier.width(10.dp))
+        Text(
+            "正在读取链接…",
+            style = MaterialTheme.typography.bodySmall,
+            color = Ds.colors.inkTertiary,
+        )
+    }
+}
+
 @Composable
 fun PendingMessageRow(
     message: PendingMessageEntity,
+    api: ApiClient,
+    biliCookie: String,
+    card: PendingCard?,
     busy: Boolean,
     failed: Boolean,
     onRetry: () -> Unit,
@@ -1392,6 +1463,18 @@ fun PendingMessageRow(
                                 maxLines = 30,
                                 overflow = TextOverflow.Ellipsis,
                             )
+                        }
+                        // 卡片在气泡里就跟上，别等她回了才补出来
+                        if (card != null) {
+                            if (card.ready) {
+                                if (card.bili) {
+                                    BiliCard(api, card.url, biliCookie)
+                                } else {
+                                    WebCard(api, card.url)
+                                }
+                            } else {
+                                LinkSkeleton()
+                            }
                         }
                     }
                 }

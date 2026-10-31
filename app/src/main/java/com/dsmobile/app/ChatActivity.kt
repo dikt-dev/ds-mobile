@@ -137,7 +137,9 @@ import com.dsmobile.app.ui.DaySeparator
 import com.dsmobile.app.ui.EmptyChat
 import com.dsmobile.app.ui.MessageItem
 import com.dsmobile.app.ui.PairingScreen
+import com.dsmobile.app.ui.PendingCard
 import com.dsmobile.app.ui.PendingMessageRow
+import com.dsmobile.app.ui.Receipt
 import com.dsmobile.app.ui.StatusStrip
 import com.dsmobile.app.ui.StreamingMessage
 import com.dsmobile.app.ui.components.DsField
@@ -169,6 +171,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.UUID
@@ -385,6 +388,8 @@ private fun ChatScreen(
     var stickToBottom by remember { mutableStateOf(true) }
     var animateSegments by remember { mutableStateOf(false) }
     val failedPendingIds = remember { mutableStateMapOf<Long, Boolean>() }
+    // pending 气泡里的链接卡片状态：先骨架，解析完原地填。pending 删掉时一起清。
+    val pendingCards = remember { mutableStateMapOf<Long, PendingCard>() }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
 
@@ -537,6 +542,12 @@ private fun ChatScreen(
         )
         val pendingId = dao.insertPending(pendingMessage)
         failedPendingIds.remove(pendingId)
+        // 先按链接长相占个位：气泡 0ms 就完整出现（文字 + 骨架），解析结果原地填进去
+        val earlyBili = BILI_URL_REGEX.find(text)?.value
+        val earlyUrl = earlyBili ?: URL_REGEX.find(text)?.value
+        if (earlyUrl != null) {
+            pendingCards[pendingId] = PendingCard(earlyUrl, earlyBili != null, ready = false)
+        }
         withFrameNanos { }
         listState.scrollToItem(0)
         val biliUrl = BILI_URL_REGEX.find(text)?.value
@@ -559,6 +570,19 @@ private fun ChatScreen(
             bili != null && bili.title.isNotBlank() -> text + "\n\n" + biliMetaText(bili, biliUrl!!)
             web != null -> text + "\n\n" + webMetaText(web, webUrl!!)
             else -> text
+        }
+        // 解析结果先塞进缓存，再把骨架换成真卡片：卡片一出现就是完整的，
+        // 不会先显示"哔哩哔哩视频"占位标题再刷一次封面。
+        if (bili != null && !biliUrl.isNullOrBlank() && bili.title.isNotBlank()) {
+            MediaCaches.putBiliPreview(biliUrl, bili)
+            pendingCards[pendingId] = PendingCard(biliUrl, true, ready = true)
+        } else if (web != null && !webUrl.isNullOrBlank()) {
+            MediaCaches.putWebPreview(webUrl, web)
+            pendingCards[pendingId] = PendingCard(webUrl, false, ready = true)
+        } else if (earlyUrl != null) {
+            // 没读出来就别留个空骨架骗人
+            pendingCards.remove(pendingId)
+            status = "链接没读出来，先按文字发"
         }
         val biliCookie = settings.biliCookie.ifBlank {
             if (settings.biliSessdata.isBlank()) "" else "SESSDATA=${settings.biliSessdata}"
@@ -628,13 +652,13 @@ private fun ChatScreen(
             emptyList()
         }
         android.util.Log.i("BiliAi", "frames=" + frames.size + " detail=" + detailFrames.size)
-        // ★ 带链接/视频时先停一下：卡片和封面已经渲染，让她看完再开口
+        // 带链接/视频时给状态一行提示，但不再固定停 1.5 秒：
+        // 卡片在她开口前早就渲染好了，停顿改由"已读到开口"统一承担，避免两段空等叠加。
         val mediaTurn = bili != null || web != null ||
             text.contains("[视频:") || text.contains("[GIF:")
         if (mediaTurn) {
             status = "正看着你发的…"
             withFrameNanos { }
-            delay(MEDIA_SETTLE_MS)
         }
         try {
             // 非流式等待完整回复，避免一边输出一边重排；语音先合成，再让消息进入列表逐句展示。
@@ -644,17 +668,31 @@ private fun ChatScreen(
             } else {
                 outgoing
             }
-            val reply = if (allFrames.isNotEmpty()) {
-                api.chatWithImages(
-                    replyText,
-                    allFrames.map { bitmapToDataUrl(it) },
-                    pendingMessage.clientMessageId,
-                    transient = true,
-                ).also {
-                    allFrames.forEach { bmp -> bmp.recycle() }
+            val reply = coroutineScope {
+                // 等她回话的这几秒里每 0.7 秒对一次账：服务端一落库，pending 就被换成正身，
+                // 气泡从"发送中"变"已发送"。否则界面毫无变化，看着像没发出去。
+                val watcher = launch {
+                    while (isActive) {
+                        delay(700)
+                        runCatching { syncEvents() }
+                    }
                 }
-            } else {
-                api.chat(replyText, pendingMessage.clientMessageId)
+                try {
+                    if (allFrames.isNotEmpty()) {
+                        api.chatWithImages(
+                            replyText,
+                            allFrames.map { bitmapToDataUrl(it) },
+                            pendingMessage.clientMessageId,
+                            transient = true,
+                        ).also {
+                            allFrames.forEach { bmp -> bmp.recycle() }
+                        }
+                    } else {
+                        api.chat(replyText, pendingMessage.clientMessageId)
+                    }
+                } finally {
+                    watcher.cancel()
+                }
             }
             val voices = parseChatSegments(reply)
                 .filterIsInstance<ChatSegment.Voice>()
@@ -666,6 +704,7 @@ private fun ChatScreen(
             syncEvents()
             dao.deletePending(pendingMessage.copy(id = pendingId))
             failedPendingIds.remove(pendingId)
+            pendingCards.remove(pendingId)
             streamingText = ""
             status = ""
         } catch (e: Exception) {
@@ -1167,6 +1206,11 @@ private fun ChatScreen(
                 items(pending.asReversed(), key = { "pending-${it.id}" }) { message ->
                     PendingMessageRow(
                         message = message,
+                        api = api,
+                        biliCookie = settings.biliCookie.ifBlank {
+                            if (settings.biliSessdata.isBlank()) "" else "SESSDATA=" + settings.biliSessdata
+                        },
+                        card = pendingCards[message.id],
                         busy = busy,
                         failed = failedPendingIds[message.id] == true,
                         onRetry = {
@@ -1193,6 +1237,7 @@ private fun ChatScreen(
                             scope.launch {
                                 dao.deletePending(message)
                                 failedPendingIds.remove(message.id)
+                                pendingCards.remove(message.id)
                                 status = ""
                             }
                         },
@@ -1226,11 +1271,13 @@ private fun ChatScreen(
                         },
                         showMeta = !sameSpeaker,
                         grouped = sameSpeaker,
-                        // "已读"要等她的回复真的到手机上才亮：不是发出去就亮。
-                        // 亮之后 ChatUi 里还会空 1.5 秒再开口（READ_HOLD_MS）。
-                        showRead = message.role == "user" &&
-                            !nextSameSpeaker &&
-                            newer?.role == "assistant",
+                        // 三档：发出去但没落库（pending，气泡自己显示"发送中"）→
+                        // 落库了但还没回（"已发送"）→ 她的回复到了这台手机（"已读"）。
+                        receipt = when {
+                            message.role != "user" || nextSameSpeaker -> null
+                            newer?.role == "assistant" -> Receipt.READ
+                            else -> Receipt.SENT
+                        },
                         animate = animateSegments,
                         onSpeak = { TtsManager.speak(context, settings, it) },
                         onPrefetch = { TtsManager.prefetch(context, settings, it) },
