@@ -1042,10 +1042,11 @@ private fun ChatScreen(
 
     // 她的生活状态：睡了 / 在忙 · 看电影 / 有空。拉不到就退回"在线 · 已连接"。
     var lifeStatus by remember { mutableStateOf<com.dsmobile.app.net.LifeStatus?>(null) }
+    // 顶栏只留三个词：细节在状态页里看，这里越短越好
     val lifeLine = when (lifeStatus?.status) {
-        "sleeping" -> "睡了，明早八点起"
-        "busy" -> lifeStatus?.currentTitle?.takeIf { it.isNotBlank() }?.let { "在忙 · $it" } ?: "在忙"
-        "free" -> lifeStatus?.currentTitle?.takeIf { it.isNotBlank() }?.let { "有空 · $it" } ?: "有空"
+        "sleeping" -> "睡了"
+        "busy" -> "在忙"
+        "free" -> "有空"
         else -> null
     }
     LaunchedEffect(Unit) {
