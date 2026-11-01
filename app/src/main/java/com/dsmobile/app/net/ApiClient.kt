@@ -343,6 +343,23 @@ class ApiClient(
         }
     }
 
+    /** 日记配图：key 形如 diary-images/2026-10-31/cover.jpg。 */
+    suspend fun diaryImage(key: String): ByteArray = withContext(Dispatchers.IO) {
+        val cacheKey = "diary-image:$key"
+        diskCache?.get(cacheKey)?.let { return@withContext it }
+        val request = Request.Builder()
+            .url("$baseUrl/api/app/diary-image/" + key.split("/").joinToString("/") { java.net.URLEncoder.encode(it, "UTF-8") })
+            .header("Authorization", "Bearer ${requireToken()}")
+            .get()
+            .build()
+        execute(request).use { response ->
+            val bytes = response.body?.bytes() ?: ByteArray(0)
+            if (!response.isSuccessful) throw ApiException(errorText(response.code, ""))
+            diskCache?.put(cacheKey, bytes)
+            bytes
+        }
+    }
+
     suspend fun stt(wav: ByteArray, azureKey: String, region: String): String = withContext(Dispatchers.IO) {
         if (azureKey.isBlank()) throw ApiException("未配置 Azure Speech Key")
         if (wav.size < 1024) throw ApiException("录音太短")
@@ -1075,6 +1092,11 @@ class ApiClient(
                     text = if (o.isNull("text")) null else o.optString("text").ifBlank { null },
                     asked = o.optBoolean("asked"),
                     expired = o.optBoolean("expired"),
+                    declined = o.optBoolean("declined"),
+                    peeked = o.optBoolean("peeked"),
+                    images = o.optJSONArray("images")?.let { arr ->
+                        (0 until arr.length()).map { arr.optString(it) }.filter { it.isNotBlank() }
+                    } ?: emptyList(),
                     reason = o.optString("reason"),
                     weekday = basics?.optString("weekday").orEmpty(),
                     weather = basics?.optString("weather").orEmpty(),
@@ -1170,6 +1192,9 @@ data class DiaryDetail(
     val text: String? = null,
     val asked: Boolean = false,
     val expired: Boolean = false,
+    val declined: Boolean = false,
+    val peeked: Boolean = false,
+    val images: List<String> = emptyList(),
     val reason: String = "",
     val weekday: String = "",
     val weather: String = "",

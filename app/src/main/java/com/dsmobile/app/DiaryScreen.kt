@@ -1,5 +1,6 @@
 package com.dsmobile.app
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -33,6 +34,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -46,6 +49,8 @@ import com.dsmobile.app.ui.components.DsButton
 import com.dsmobile.app.ui.components.DsSheetHandle
 import com.dsmobile.app.ui.theme.Ds
 import com.dsmobile.app.ui.theme.DsSpace
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
@@ -149,6 +154,7 @@ fun DiaryScreen(api: ApiClient, onClose: () -> Unit) {
                 )
             } else {
                 DiaryPage(
+                    api = api,
                     detail = detail!!,
                     onBack = { detail = null },
                     onAsk = { date ->
@@ -232,7 +238,39 @@ private fun DiaryCard(item: DiaryItem, asked: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun DiaryPage(detail: DiaryDetail, onBack: () -> Unit, onAsk: (String) -> Unit) {
+private fun DiaryCover(api: ApiClient, key: String) {
+    var bitmap by remember(key) { mutableStateOf<android.graphics.Bitmap?>(null) }
+    var failed by remember(key) { mutableStateOf(false) }
+    LaunchedEffect(key) {
+        val bytes = withTimeoutOrNull(12_000) { api.diaryImage(key) }
+        bitmap = bytes?.let {
+            runCatching { android.graphics.BitmapFactory.decodeByteArray(it, 0, it.size) }.getOrNull()
+        }
+        failed = bitmap == null
+    }
+    val bmp = bitmap
+    when {
+        bmp != null -> Image(
+            bitmap = bmp.asImageBitmap(),
+            contentDescription = null,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(3.dp)),
+            contentScale = ContentScale.FillWidth,
+        )
+        failed -> Unit
+        else -> Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(180.dp)
+                .clip(RoundedCornerShape(3.dp))
+                .background(Color(0x22A33A32)),
+        )
+    }
+}
+
+@Composable
+private fun DiaryPage(api: ApiClient, detail: DiaryDetail, onBack: () -> Unit, onAsk: (String) -> Unit) {
     Text(
         "← 回去",
         fontSize = 13.sp,
@@ -263,6 +301,19 @@ private fun DiaryPage(detail: DiaryDetail, onBack: () -> Unit, onAsk: (String) -
                 letterSpacing = 1.sp,
                 color = InkBrownSoft,
             )
+            if (detail.images.isNotEmpty()) {
+                Spacer(Modifier.height(14.dp))
+                DiaryCover(api = api, key = detail.images.first())
+            }
+            if (detail.peeked) {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "她只给了你看这些，剩下的在她那儿",
+                    fontSize = 12.sp,
+                    letterSpacing = 1.sp,
+                    color = StampRed,
+                )
+            }
             Spacer(Modifier.height(18.dp))
             Text(
                 detail.text,
