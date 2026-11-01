@@ -1023,6 +1023,81 @@ class ApiClient(
         }.getOrNull()
     }
 
+    /** 日记列表：锁着的只有日期/天气/身体，正文压根不在这个响应里。 */
+    suspend fun diaryList(limit: Int = 60): List<DiaryItem> = withContext(Dispatchers.IO) {
+        runCatching {
+            val request = Request.Builder()
+                .url("$baseUrl/api/app/ai-diary/index?limit=$limit")
+                .header("Authorization", "Bearer ${requireToken()}")
+                .get()
+                .build()
+            execute(request).use { response ->
+                if (!response.isSuccessful) return@runCatching emptyList()
+                val root = JSONObject(response.body?.string().orEmpty())
+                val arr = root.optJSONArray("items") ?: return@runCatching emptyList()
+                buildList {
+                    for (i in 0 until arr.length()) {
+                        val o = arr.optJSONObject(i) ?: continue
+                        add(
+                            DiaryItem(
+                                date = o.optString("date"),
+                                weekday = o.optString("weekday"),
+                                weather = o.optString("weather"),
+                                tempC = if (o.has("tempC") && !o.isNull("tempC")) o.optInt("tempC") else null,
+                                location = o.optString("location"),
+                                health = if (o.has("health") && !o.isNull("health")) o.optInt("health") else null,
+                                visible = o.optBoolean("visible"),
+                                asked = o.optBoolean("asked"),
+                                expired = o.optBoolean("expired"),
+                            )
+                        )
+                    }
+                }
+            }
+        }.getOrElse { emptyList() }
+    }
+
+    /** 单篇：没同意时 text 为空，只回基本信息和一句状态。 */
+    suspend fun diaryDetail(date: String): DiaryDetail? = withContext(Dispatchers.IO) {
+        runCatching {
+            val request = Request.Builder()
+                .url("$baseUrl/api/app/ai-diary?date=$date")
+                .header("Authorization", "Bearer ${requireToken()}")
+                .get()
+                .build()
+            execute(request).use { response ->
+                if (!response.isSuccessful) return@runCatching null
+                val o = JSONObject(response.body?.string().orEmpty())
+                val basics = o.optJSONObject("basics")
+                DiaryDetail(
+                    date = o.optString("date", date),
+                    visible = o.optBoolean("visible"),
+                    text = if (o.isNull("text")) null else o.optString("text").ifBlank { null },
+                    asked = o.optBoolean("asked"),
+                    expired = o.optBoolean("expired"),
+                    reason = o.optString("reason"),
+                    weekday = basics?.optString("weekday").orEmpty(),
+                    weather = basics?.optString("weather").orEmpty(),
+                    tempC = basics?.let { if (it.has("tempC") && !it.isNull("tempC")) it.optInt("tempC") else null },
+                    location = basics?.optString("location").orEmpty(),
+                )
+            }
+        }.getOrNull()
+    }
+
+    /** 「问问她」：把这天标成待回答，等她聊天里回话。 */
+    suspend fun askDiary(date: String): Boolean = withContext(Dispatchers.IO) {
+        runCatching {
+            val body = JSONObject().put("date", date).toString()
+            val request = Request.Builder()
+                .url("$baseUrl/api/app/ai-diary/ask")
+                .header("Authorization", "Bearer ${requireToken()}")
+                .post(body.toRequestBody(jsonType))
+                .build()
+            execute(request).use { it.isSuccessful }
+        }.getOrElse { false }
+    }
+
     private fun execute(request: Request) = client.newCall(request).execute()
 
     private fun requireToken(): String = token ?: throw ApiException("设备未配对")
@@ -1047,4 +1122,31 @@ data class StatusSnapshot(
     val balanceHint: String = "",
     val balanceTotal: Double = 0.0,
     val balanceCurrency: String = "",
+)
+
+/** 日记条目：锁着也给日期/天气/身体，正文不在列表里。 */
+data class DiaryItem(
+    val date: String = "",
+    val weekday: String = "",
+    val weather: String = "",
+    val tempC: Int? = null,
+    val location: String = "",
+    val health: Int? = null,
+    val visible: Boolean = false,
+    val asked: Boolean = false,
+    val expired: Boolean = false,
+)
+
+/** 单篇日记。visible=false 时 text 一定为 null（服务端就不给）。 */
+data class DiaryDetail(
+    val date: String = "",
+    val visible: Boolean = false,
+    val text: String? = null,
+    val asked: Boolean = false,
+    val expired: Boolean = false,
+    val reason: String = "",
+    val weekday: String = "",
+    val weather: String = "",
+    val tempC: Int? = null,
+    val location: String = "",
 )

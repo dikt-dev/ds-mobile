@@ -2,6 +2,7 @@ package com.dsmobile.app
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -63,6 +64,7 @@ fun StatusScreen(api: ApiClient, onClose: () -> Unit) {
     var loading by remember { mutableStateOf(true) }
     var failed by remember { mutableStateOf(false) }
     var refreshKey by remember { mutableIntStateOf(0) }
+    var showDiary by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     LaunchedEffect(refreshKey) {
@@ -172,6 +174,31 @@ fun StatusScreen(api: ApiClient, onClose: () -> Unit) {
                     StatRow("今天", s.today, s.todayHint)
                 }
 
+                // 日记入口：她自己的一本本子，锁着的页只露日期和天气
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(20.dp))
+                        .clickable { showDiary = true }
+                        .background(Ds.colors.surface)
+                        .padding(DsSpace.md),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            "她的日记",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Ds.colors.ink,
+                        )
+                        Text(
+                            "每天凌晨写前一晚，想看得先问她",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Ds.colors.inkTertiary,
+                        )
+                    }
+                    Text("›", style = MaterialTheme.typography.titleMedium, color = Ds.colors.inkTertiary)
+                }
+
                 if (s.balance.isNotEmpty()) {
                     DsSectionLabel("账户")
                     Row(
@@ -221,6 +248,10 @@ fun StatusScreen(api: ApiClient, onClose: () -> Unit) {
             }
             Spacer(Modifier.height(DsSpace.xl))
         }
+    }
+
+    if (showDiary) {
+        DiaryScreen(api = api) { showDiary = false }
     }
 }
 
