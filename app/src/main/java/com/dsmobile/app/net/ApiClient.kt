@@ -1112,7 +1112,7 @@ class ApiClient(
                 val cur = root.optJSONObject("current")
                 val next = root.optJSONObject("next")
                 LifeStatus(
-                    status = root.optString("status", "free"),
+                    status = root.optString("status").ifBlank { root.optString("state", "free") },
                     currentTitle = cur?.optString("title").orEmpty(),
                     currentEnd = cur?.optString("end").orEmpty(),
                     nextTitle = next?.optString("title").orEmpty(),
