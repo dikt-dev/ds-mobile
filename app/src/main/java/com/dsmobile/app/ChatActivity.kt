@@ -124,6 +124,7 @@ import com.dsmobile.app.data.MessageEntity
 import com.dsmobile.app.data.PendingMessageEntity
 import com.dsmobile.app.data.SettingsStore
 import com.dsmobile.app.media.MediaUtils
+import com.dsmobile.app.net.HeldException
 import com.dsmobile.app.net.ApiClient
 import com.dsmobile.app.net.BiliPreview
 import com.dsmobile.app.net.WebPreview
@@ -570,6 +571,18 @@ private fun ChatScreen(
             pendingCards.remove(pendingId)
             streamingText = ""
             status = ""
+        } catch (e: HeldException) {
+            // 被闸门压住：别挂成「发送失败」，那会让人反复重发同一条。
+            // 消息早已落库，等下一轮对账把 pending 换成正身即可。
+            frames.forEach { it.recycle() }
+            runCatching { syncer.syncEvents() }
+            runCatching { syncer.reconcilePending() }
+            dao.deletePending(pendingMessage.copy(id = pendingId))
+            pendingCards.remove(pendingId)
+            failedPendingIds.remove(pendingId)
+            streamingText = ""
+            status = ""
+            android.widget.Toast.makeText(context, e.message, android.widget.Toast.LENGTH_LONG).show()
         } catch (e: Exception) {
             frames.forEach { it.recycle() }
             failedPendingIds[pendingId] = true
@@ -1103,6 +1116,15 @@ private fun ChatScreen(
                                     delay(300)
                                     syncer.syncEvents()
                                     status = ""
+                                } catch (e: HeldException) {
+                                    dao.deletePending(message)
+                                    failedPendingIds.remove(message.id)
+                                    status = ""
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        (e.message ?: "她这会儿在忙，等会儿回你"),
+                                        android.widget.Toast.LENGTH_LONG,
+                                    ).show()
                                 } catch (e: Exception) {
                                     failedPendingIds[message.id] = true
                                     status = "发送失败：${e.message}"

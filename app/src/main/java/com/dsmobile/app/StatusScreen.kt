@@ -277,8 +277,12 @@ private fun nowHint(life: com.dsmobile.app.net.LifeStatus?): String {
         life?.status == "sleeping" -> "明早八点起"
         else -> ""
     }
-    // 今天是大扫除日时先说这个：不然她安静一天，看着像没人
-    return listOf(life?.dayType.orEmpty(), planned).filter { it.isNotBlank() }.joinToString(" · ")
+    // 今天是大扫除日时先说这个：不然她安静一天，看着像没人。
+    // 身体不舒服也先说：health < 80 才提，平时不拿健康刷存在感。
+    val body = if ((life?.health ?: 100) < 80) "身子还没好利索" else ""
+    return listOf(body, life?.dayType.orEmpty(), planned)
+        .filter { it.isNotBlank() }
+        .joinToString(" · ")
 }
 
 @Composable

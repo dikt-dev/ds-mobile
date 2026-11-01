@@ -1188,3 +1188,12 @@ data class LifeStatus(
     /** 今天是什么日子：大扫除日 / 通宵追番日 / 生病日…普通日子为空 */
     val dayType: String = "",
 )
+
+/**
+ * 消息被闸门压住了。
+ *
+ * 这不是失败：服务端已经落库，只是她这会儿在忙或在睡，到 [until] 才回。
+ * 客户端要把它和「发送失败」分开，不然用户会以为消息丢了，反复重发。
+ */
+class HeldException(val until: String, val reason: String) :
+    Exception(if (until.isBlank()) "她这会儿在忙，等会儿回你" else "她这会儿在忙，${until} 再回你")
