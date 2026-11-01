@@ -1066,6 +1066,7 @@ class ApiClient(
                                 visible = o.optBoolean("visible"),
                                 asked = o.optBoolean("asked"),
                                 expired = o.optBoolean("expired"),
+                                declined = o.optBoolean("declined"),
                             )
                         )
                     }
@@ -1183,6 +1184,8 @@ data class DiaryItem(
     val visible: Boolean = false,
     val asked: Boolean = false,
     val expired: Boolean = false,
+    /** 明确拒绝过：显示「她说不给」，重新点「问问她」还能再问 */
+    val declined: Boolean = false,
 )
 
 /** 单篇日记。visible=false 时 text 一定为 null（服务端就不给）。 */

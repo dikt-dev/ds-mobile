@@ -384,12 +384,14 @@ private fun DiaryPage(api: ApiClient, detail: DiaryDetail, onBack: () -> Unit, o
 
 private fun stateText(item: DiaryItem, asked: Boolean): String = when {
     item.visible -> "今天能看到"
+    item.declined -> "她说不给"
     asked -> "问过了，她还没答"
     item.expired -> "收起来了，要再问"
     else -> "锁着"
 }
 
 private fun lockText(detail: DiaryDetail): String = when {
+    detail.declined -> "她说不给"
     detail.asked -> "问过了，正在等她回话"
     detail.expired -> "那天给你看过，已经收起来了"
     detail.reason.isNotBlank() -> detail.reason
