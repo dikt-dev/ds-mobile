@@ -109,6 +109,12 @@ class ProactiveCheckReceiver : BroadcastReceiver() {
         val fresh = page.messages
             .filter { it.id > settings.lastNotifiedId && isProactive(it) }
             .sortedBy { it.id }
+        Log.i(
+            TAG,
+            "slot=" + slotKey + " lastEvent=" + settings.lastEventId +
+                " lastNotified=" + settings.lastNotifiedId + " got=" + page.messages.size +
+                " fresh=" + fresh.size + " visible=" + KeepAliveService.appVisible,
+        )
 
         if (fresh.isEmpty()) {
             Log.i(TAG, "no proactive message yet, slot=$slotKey")

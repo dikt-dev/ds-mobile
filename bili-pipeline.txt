@@ -1,0 +1,65 @@
+        // 缓存里的 playUrl 会过期（deadline/sign），发之前现取一条
+        val livePlayUrl = if (bili != null && bili.bvid.isNotBlank() && bili.cid > 0) {
+            runCatching { api.freshPlayUrl(bili.bvid, bili.cid, biliCookie) }.getOrDefault("")
+        } else {
+            ""
+        }
+        val usingPlayUrl = livePlayUrl.ifBlank { bili?.playUrl.orEmpty() }
+        val biliDuration = if (bili != null) {
+            if (bili.duration > 0) bili.duration.toDouble()
+            else (bili.storyboardIndex.lastOrNull() ?: 0.0)
+        } else {
+            0.0
+        }
+        val longVideo = bili != null && biliDuration >= 150.0 && usingPlayUrl.isNotBlank()
+        // 规划轮只吃文字，和抽宫格并行跑：它的耗时被宫格的 4 秒吃掉，不再额外加延迟。
+        val paired = coroutineScope {
+            val planDeferred: kotlinx.coroutines.Deferred<List<Double>>? = if (longVideo) async {
+                runCatching {
+                    parseLookTimes(api.chat(textPlanPrompt(bili!!, biliDuration), null, record = false))
+                }.getOrDefault(emptyList<Double>())
+            } else {
+                null
+            }
+            val grids = if (bili != null && bili.storyboardUrl.isNotBlank()) {
+            runCatching {
+                BiliFrames.loadAiFrames(
+                    storyboardUrl = bili.storyboardUrl,
+                    cols = bili.storyboardCols,
+                    rows = bili.storyboardRows,
+                    cookie = biliCookie,
+                    cacheDir = context.cacheDir,
+                    timestamps = bili.storyboardIndex,
+                    spriteUrls = bili.storyboardUrls,
+                    playUrl = usingPlayUrl,
+                    cacheKey = bili.bvid,
+                    dumpDebug = (context.applicationInfo.flags and
+                        android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0,
+                )
+                }.getOrDefault(emptyList())
+            } else {
+                emptyList()
+            }
+            grids to (planDeferred?.await() ?: emptyList())
+        }
+        val frames = paired.first
+        val plannedTimes = paired.second
+        // 长视频：从本地缓存的 MP4 里补原始分辨率帧。
+        // 规划轮 record=false，不写 D1、不进记忆，用户在界面上也看不到。
+        val detailFrames = if (frames.isNotEmpty() && bili != null && usingPlayUrl.isNotBlank()) {
+            runCatching {
+                val dur = biliDuration
+                if (dur < 150.0) {
+                    emptyList()
+                } else {
+                    android.util.Log.i("BiliAi", "text plan times=" + plannedTimes.joinToString())
+                    val times = plannedTimes.ifEmpty { pickDetailTimes(dur, bili.subtitle) }
+                    android.util.Log.i("BiliAi", "detail times=" + times.joinToString())
+                    if (times.isEmpty()) emptyList()
+                    else BiliFrames.detailFrames(usingPlayUrl, context.cacheDir, times, bili.bvid)
+                }
+            }.getOrDefault(emptyList())
+        } else {
+            emptyList()
+        }
+        android.util.Log.i("BiliAi", "frames=" + frames.size + " detail=" + detailFrames.size)

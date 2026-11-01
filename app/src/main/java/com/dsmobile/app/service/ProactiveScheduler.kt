@@ -30,10 +30,10 @@ object ProactiveScheduler {
     private const val TAG = "ProactiveScheduler"
 
     /** 比计划时刻早醒多少分钟：给系统的延迟留余量。 */
-    const val EARLY_MINUTES = 12L
+    const val EARLY_MINUTES = 3L
 
     /** 超过计划时刻这么久就不再弹通知（只等下次打开 App 看）。 */
-    const val NOTIFY_DEADLINE_MINUTES = 30L
+    const val NOTIFY_DEADLINE_MINUTES = 45L
 
     /**
      * 离目标时刻小于这么久才允许发请求。
@@ -50,8 +50,11 @@ object ProactiveScheduler {
 
     private const val MAX_SLOTS = 4
     private const val RETRY_REQUEST_BASE = 100
-    private const val RETRY_MAX = 2
-    private const val RETRY_DELAY_MS = 10 * 60_000L
+    private const val RETRY_MAX = 4
+    private const val RETRY_DELAY_MS = 3 * 60_000L
+
+    /** 重算计划时是否连带清掉待重试闹钟；默认否。 */
+    private const val CANCEL_RETRIES_ON_REFRESH = false
 
     private val BEIJING: ZoneId = ZoneId.of("Asia/Shanghai")
 
@@ -171,8 +174,12 @@ object ProactiveScheduler {
         for (i in 0 until MAX_SLOTS) {
             manager.cancel(pendingFor(context, i, "", 0L, 0))
         }
-        for (i in 0..RETRY_MAX) {
-            manager.cancel(pendingFor(context, RETRY_REQUEST_BASE + i, "", 0L, i))
+        // 待重试的闹钟故意不取消：打开 App 只是重算当天档位，
+        // 不该把「已经醒来但还没取到消息」的那次补偿一起清掉。
+        if (CANCEL_RETRIES_ON_REFRESH) {
+            for (i in 0..RETRY_MAX) {
+                manager.cancel(pendingFor(context, RETRY_REQUEST_BASE + i, "", 0L, i))
+            }
         }
         manager.cancel(pendingFor(context, 200, "debug", 0L, 0))
         manager.cancel(pendingFor(context, REARM_REQUEST, "", 0L, 0))
@@ -239,10 +246,14 @@ object ProactiveScheduler {
         val manager = context.getSystemService(AlarmManager::class.java) ?: return
         val pending = pendingFor(context, requestCode, slotKey, targetMs, retry)
         runCatching {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pending)
-            } else {
-                manager.set(AlarmManager.RTC_WAKEUP, triggerAt, pending)
+            val exact = Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+                manager.canScheduleExactAlarms()
+            when {
+                exact && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ->
+                    manager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pending)
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ->
+                    manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pending)
+                else -> manager.set(AlarmManager.RTC_WAKEUP, triggerAt, pending)
             }
         }.onFailure { Log.w(TAG, "set alarm failed: ${it.message}") }
     }

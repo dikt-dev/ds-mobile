@@ -79,6 +79,10 @@ class MainActivity : ComponentActivity() {
     ) { /* granted or not, FGS still can run; notification visibility depends on it */ }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // 调试：adb shell am start -n com.dsmobile.app/.MainActivity --es debug_notify 1
+        if (intent?.getStringExtra("debug_notify") != null) {
+            com.dsmobile.app.service.ProactiveNotifier.notify(this, "测试通知：本地通知链路正常", 999999L)
+        }
         super.onCreate(savedInstanceState)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
