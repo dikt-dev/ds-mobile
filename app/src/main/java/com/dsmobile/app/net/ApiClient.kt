@@ -1118,6 +1118,7 @@ class ApiClient(
                     nextTitle = next?.optString("title").orEmpty(),
                     nextStart = next?.optString("start").orEmpty(),
                     health = root.optInt("health", 100),
+                    dayType = root.optJSONObject("day_type")?.optString("label").orEmpty(),
                 )
             }
         }.getOrNull()
@@ -1184,4 +1185,6 @@ data class LifeStatus(
     val nextTitle: String = "",
     val nextStart: String = "",
     val health: Int = 100,
+    /** 今天是什么日子：大扫除日 / 通宵追番日 / 生病日…普通日子为空 */
+    val dayType: String = "",
 )

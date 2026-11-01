@@ -272,11 +272,13 @@ private fun nowLine(life: com.dsmobile.app.net.LifeStatus?): String = when (life
 private fun nowHint(life: com.dsmobile.app.net.LifeStatus?): String {
     val next = life?.nextTitle.orEmpty()
     val at = life?.nextStart.orEmpty()
-    return when {
+    val planned = when {
         next.isNotBlank() && at.isNotBlank() -> "$at 打算$next"
         life?.status == "sleeping" -> "明早八点起"
         else -> ""
     }
+    // 今天是大扫除日时先说这个：不然她安静一天，看着像没人
+    return listOf(life?.dayType.orEmpty(), planned).filter { it.isNotBlank() }.joinToString(" · ")
 }
 
 @Composable
