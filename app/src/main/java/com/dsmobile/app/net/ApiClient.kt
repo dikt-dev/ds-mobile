@@ -1098,6 +1098,31 @@ class ApiClient(
         }.getOrElse { false }
     }
 
+    /** 她现在的状态（睡了/在忙/有空）+ 正在做什么，顶栏那行用它。 */
+    suspend fun aiStatus(): LifeStatus? = withContext(Dispatchers.IO) {
+        runCatching {
+            val request = Request.Builder()
+                .url("$baseUrl/api/app/ai-status")
+                .header("Authorization", "Bearer ${requireToken()}")
+                .get()
+                .build()
+            execute(request).use { response ->
+                if (!response.isSuccessful) return@runCatching null
+                val root = JSONObject(response.body?.string().orEmpty())
+                val cur = root.optJSONObject("current")
+                val next = root.optJSONObject("next")
+                LifeStatus(
+                    status = root.optString("status", "free"),
+                    currentTitle = cur?.optString("title").orEmpty(),
+                    currentEnd = cur?.optString("end").orEmpty(),
+                    nextTitle = next?.optString("title").orEmpty(),
+                    nextStart = next?.optString("start").orEmpty(),
+                    health = root.optInt("health", 100),
+                )
+            }
+        }.getOrNull()
+    }
+
     private fun execute(request: Request) = client.newCall(request).execute()
 
     private fun requireToken(): String = token ?: throw ApiException("设备未配对")
@@ -1149,4 +1174,14 @@ data class DiaryDetail(
     val weather: String = "",
     val tempC: Int? = null,
     val location: String = "",
+)
+
+/** 她的生活状态：睡着 / 在忙（在做某一件事）/ 有空。 */
+data class LifeStatus(
+    val status: String = "free",
+    val currentTitle: String = "",
+    val currentEnd: String = "",
+    val nextTitle: String = "",
+    val nextStart: String = "",
+    val health: Int = 100,
 )

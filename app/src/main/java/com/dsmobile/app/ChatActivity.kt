@@ -1027,6 +1027,21 @@ private fun ChatScreen(
         }
     }
 
+    // 她的生活状态：睡了 / 在忙 · 看电影 / 有空。拉不到就退回"在线 · 已连接"。
+    var lifeStatus by remember { mutableStateOf<com.dsmobile.app.net.LifeStatus?>(null) }
+    val lifeLine = when (lifeStatus?.status) {
+        "sleeping" -> "睡了，明早八点起"
+        "busy" -> lifeStatus?.currentTitle?.takeIf { it.isNotBlank() }?.let { "在忙 · $it" } ?: "在忙"
+        "free" -> lifeStatus?.currentTitle?.takeIf { it.isNotBlank() }?.let { "有空 · $it" } ?: "有空"
+        else -> null
+    }
+    LaunchedEffect(Unit) {
+        while (true) {
+            lifeStatus = runCatching { api.aiStatus() }.getOrNull()
+            delay(180_000)
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -1037,8 +1052,8 @@ private fun ChatScreen(
     ) {
         ChatTopBar(
             name = "大肥鱼",
-            statusText = if (busy) "正在回复…" else "在线 · 已连接",
-            online = true,
+            statusText = if (busy) "正在回复…" else (lifeLine ?: "在线 · 已连接"),
+            online = lifeStatus?.status != "sleeping",
             busy = busy,
             onAvatar = { StatusPanelState.visible = true },
             onStatus = { StatusPanelState.visible = true },

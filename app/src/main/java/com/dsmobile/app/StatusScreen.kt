@@ -65,18 +65,21 @@ fun StatusScreen(api: ApiClient, onClose: () -> Unit) {
     var failed by remember { mutableStateOf(false) }
     var refreshKey by remember { mutableIntStateOf(0) }
     var showDiary by remember { mutableStateOf(false) }
+    var life by remember { mutableStateOf<com.dsmobile.app.net.LifeStatus?>(null) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     LaunchedEffect(refreshKey) {
         loading = true
         failed = false
         // 网络卡住时不要让她一直显示「加载中」：10 秒没结果就当失败，给一个重试入口
+        life = withTimeoutOrNull(8_000) { runCatching { api.aiStatus() }.getOrNull() }
         val result = withTimeoutOrNull(10_000) { runCatching { api.status() }.getOrNull() }
         snapshot = result
         failed = result == null
         loading = false
     }
 
+    if (!showDiary) {
     ModalBottomSheet(
         onDismissRequest = onClose,
         sheetState = sheetState,
@@ -167,6 +170,8 @@ fun StatusScreen(api: ApiClient, onClose: () -> Unit) {
             snapshot?.let { s ->
                 DsSectionLabel("近况")
                 DsCard(contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
+                    StatRow("现在", nowLine(life), nowHint(life))
+                    DsDivider(Modifier.padding(horizontal = DsSpace.md))
                     StatRow("关系", s.relation, s.relationHint)
                     DsDivider(Modifier.padding(horizontal = DsSpace.md))
                     StatRow("记忆", s.memory, s.memoryHint)
@@ -249,9 +254,28 @@ fun StatusScreen(api: ApiClient, onClose: () -> Unit) {
             Spacer(Modifier.height(DsSpace.xl))
         }
     }
+    }
 
     if (showDiary) {
         DiaryScreen(api = api) { showDiary = false }
+    }
+}
+
+/** 她现在在干嘛：睡了 / 在忙某件事 / 有空。 */
+private fun nowLine(life: com.dsmobile.app.net.LifeStatus?): String = when (life?.status) {
+    "sleeping" -> "睡了"
+    "busy" -> life?.currentTitle?.takeIf { it.isNotBlank() }?.let { "在忙：$it" } ?: "在忙"
+    "free" -> life?.currentTitle?.takeIf { it.isNotBlank() }?.let { "有空（$it）" } ?: "有空"
+    else -> "还不清楚"
+}
+
+private fun nowHint(life: com.dsmobile.app.net.LifeStatus?): String {
+    val next = life?.nextTitle.orEmpty()
+    val at = life?.nextStart.orEmpty()
+    return when {
+        next.isNotBlank() && at.isNotBlank() -> "$at 打算$next"
+        life?.status == "sleeping" -> "明早八点起"
+        else -> ""
     }
 }
 
