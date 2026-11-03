@@ -513,6 +513,43 @@ class ApiClient(
         }
     }
 
+    /**
+     * 把手机解析到的 B 站资料回填给服务端（网页端发的链接 Worker 取不到）。
+     * 一条消息回填一次就够；服务端会原地替换已有的 [BILI_META] 块。
+     */
+    suspend fun postBiliMeta(messageId: Long, url: String, p: BiliPreview): Boolean =
+        withContext(Dispatchers.IO) {
+            val body = JSONObject()
+                .put("message_id", messageId)
+                .put("url", url)
+                .put("title", p.title)
+                .put("owner", p.owner)
+                .put("duration", p.duration)
+                .put("cover", p.cover)
+                .put("desc", p.summary ?: "")
+            val request = Request.Builder()
+                .url("$baseUrl/api/app/bili-meta")
+                .header("Authorization", "Bearer ${requireToken()}")
+                .post(body.toString().toRequestBody("application/json".toMediaType()))
+                .build()
+            execute(request).use { it.isSuccessful }
+        }
+
+    /** 服务端删除墓碑：本地缓存跟着删。 */
+    suspend fun tombstones(): List<Long> = withContext(Dispatchers.IO) {
+        val request = Request.Builder()
+            .url("$baseUrl/api/app/tombstones")
+            .header("Authorization", "Bearer ${requireToken()}")
+            .get()
+            .build()
+        execute(request).use { response ->
+            if (!response.isSuccessful) return@withContext emptyList<Long>()
+            val root = JSONObject(response.body?.string() ?: "{}")
+            val arr = root.optJSONArray("ids") ?: return@withContext emptyList<Long>()
+            (0 until arr.length()).map { arr.optLong(it) }.filter { it > 0 }
+        }
+    }
+
     suspend fun biliPreview(url: String): BiliPreview? = withContext(Dispatchers.IO) {
         cachedBiliPreview(url)?.let { return@withContext it }
         val direct = directBiliPreview(url)

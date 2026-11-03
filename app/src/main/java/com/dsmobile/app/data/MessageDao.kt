@@ -24,6 +24,10 @@ interface MessageDao {
     @Query("UPDATE messages SET content = TRIM(SUBSTR(content, INSTR(content, ']') + 1)) WHERE content GLOB '[[]??-?? ??:??]*' AND INSTR(content, ']') > 0")
     suspend fun stripLeadingTimeLabels()
 
+    /** 服务端删掉的消息：本地缓存一起删，否则测试记录会永远留在手机上。 */
+    @Query("DELETE FROM messages WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<Long>)
+
     @Query("SELECT COALESCE(MAX(id), 0) FROM messages")
     suspend fun maxId(): Long
 

@@ -16,6 +16,8 @@ class ChatSync(
     private val api: ApiClient,
     private val failedPendingIds: MutableMap<Long, Boolean>,
 ) {
+    private val BILI_URL_REGEX =
+        Regex("https?://(?:www\\.)?bilibili\\.com/video/(?:BV[0-9A-Za-z]{10}|av\\d+)")
 
 suspend fun syncEvents() {
     var after = dao.maxId()
@@ -29,6 +31,34 @@ suspend fun syncEvents() {
         after = next
     }
     if (changed.isNotEmpty()) dao.applyServerMessages(changed)
+    applyTombstones()
+    backfillBiliMeta(changed)
+}
+
+/** 服务端删掉的消息，本地也删——不然清掉的测试记录会永远存在手机上。 */
+private suspend fun applyTombstones() {
+    val ids = runCatching { api.tombstones() }.getOrDefault(emptyList())
+    if (ids.isEmpty()) return
+    runCatching { dao.deleteByIds(ids) }
+        .onSuccess { Log.i("ChatSync", "tombstones applied n=" + ids.size) }
+}
+
+/**
+ * 网页端发的 B 站链接在服务端拿不到 meta（机房 IP 被 412），手机能直连。
+ * 同步到"有链接但没有资料"的用户消息时，本地解析一条就回填一条。
+ * 一次最多三条，避免同步时突然连发十几个 B 站请求。
+ */
+private suspend fun backfillBiliMeta(rows: List<MessageEntity>) {
+    val candidates = rows
+        .filter { it.role == "user" && !it.content.contains("[BILI_META]") }
+        .mapNotNull { m -> BILI_URL_REGEX.find(m.content)?.value?.let { m to it } }
+        .take(3)
+    for ((m, url) in candidates) {
+        val preview = runCatching { api.biliPreview(url) }.getOrNull() ?: continue
+        if (preview.title.isBlank()) continue
+        val ok = runCatching { api.postBiliMeta(m.id, url, preview) }.getOrDefault(false)
+        Log.i("ChatSync", "bili backfill id=" + m.id + " ok=" + ok + " title=" + preview.title.take(24))
+    }
 }
 
 /** 首装全量补齐；之后只走 syncEvents 增量。 */
@@ -44,6 +74,7 @@ suspend fun syncAllHistory() {
         after = next
     }
     if (all.isNotEmpty()) dao.applyServerMessages(all)
+    backfillBiliMeta(all)
 }
 
 /**
