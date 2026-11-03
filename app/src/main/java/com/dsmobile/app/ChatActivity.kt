@@ -639,27 +639,28 @@ private fun ChatScreen(
                             val caption = if (text.isBlank()) "[GIF:$key]" else "$text\n[GIF:$key]"
                             // 动图几 MB，模型那边会整段丢掉——只看到一串路径，等于没看见。
                             // 这里同时补一张首帧静图给它看画面；气泡里仍然是会动的 GIF。
+                            // 抽九帧拼成一张：只有首帧的话，她只能看出「谁、拿着什么」，
+                            // 看不出「怎么动的」。九帧能读出整个动作过程。
                             val frame = withContext(Dispatchers.IO) {
                                 runCatching {
-                                    val bmp = ImageDecoder.decodeBitmap(
-                                        ImageDecoder.createSource(context.contentResolver, attachment.uri),
-                                    )
-                                    val maxSide = 1200
-                                    val scale = minOf(1f, maxSide.toFloat() / maxOf(bmp.width, bmp.height))
-                                    val scaled = if (scale < 1f) {
-                                        Bitmap.createScaledBitmap(
-                                            bmp,
-                                            (bmp.width * scale).toInt().coerceAtLeast(1),
-                                            (bmp.height * scale).toInt().coerceAtLeast(1),
-                                            true,
-                                        )
+                                    val bytes = context.contentResolver
+                                        .openInputStream(attachment.uri)
+                                        ?.use { it.readBytes() }
+                                    if (bytes == null) return@runCatching null
+                                    val sheet = gifContactSheet(bytes)
+                                    if (sheet != null) {
+                                        val dataUrl = bitmapToDataUrl(sheet)
+                                        sheet.recycle()
+                                        dataUrl
                                     } else {
-                                        bmp
+                                        // 抽帧失败（非标准 GIF）就退回首帧，至少能看到画面
+                                        val bmp = ImageDecoder.decodeBitmap(
+                                            ImageDecoder.createSource(context.contentResolver, attachment.uri),
+                                        )
+                                        val dataUrl = bitmapToDataUrl(bmp)
+                                        bmp.recycle()
+                                        dataUrl
                                     }
-                                    val dataUrl = bitmapToDataUrl(scaled)
-                                    if (scaled !== bmp) scaled.recycle()
-                                    bmp.recycle()
-                                    dataUrl
                                 }.getOrNull()
                             }
                             if (frame != null) {
