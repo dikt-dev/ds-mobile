@@ -194,6 +194,8 @@ class ApiClient(
                                 proactiveKind = if (m.isNull("proactive_kind")) null else m.optString("proactive_kind"),
                                 clientMessageId = m.optString("client_message_id")
                                     .takeIf { it.isNotBlank() },
+                                replyToId = if (m.isNull("reply_to_id")) null else m.optLong("reply_to_id"),
+
                             )
                         )
                     }
@@ -229,6 +231,7 @@ class ApiClient(
                             proactiveKind = if (m.isNull("proactive_kind")) null else m.optString("proactive_kind"),
                             clientMessageId = m.optString("client_message_id")
                                 .takeIf { it.isNotBlank() },
+                            replyToId = if (m.isNull("reply_to_id")) null else m.optLong("reply_to_id"),
                         )
                     )
                 }

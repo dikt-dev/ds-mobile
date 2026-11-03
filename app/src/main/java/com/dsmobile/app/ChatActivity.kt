@@ -378,7 +378,7 @@ private fun ChatScreen(
     }
     val messages by dao.observe().collectAsState(initial = emptyList())
     val pending by dao.observePending().collectAsState(initial = emptyList())
-    val reversedMessages = remember(messages) { messages.asReversed() }
+    val reversedMessages = remember(messages) { orderForDisplay(messages).asReversed() }
     var input by remember { mutableStateOf("") }
     var draft by remember { mutableStateOf<DraftAttachment?>(null) }
     var busy by remember { mutableStateOf(false) }
@@ -1388,3 +1388,27 @@ private fun ChatScreen(
     }
 }
 
+
+/**
+ * 回复要挂在「被回的那条」下面。
+ *
+ * 平时 id 递增，回复自然挨着问句；但补发是把几小时前压住的旧消息现在才回，
+ * 回复的 id 很大、时间戳是现在，直接按 id 排就会跑到列表最末尾——看起来像
+ * 她在自言自语。这里用「父消息 id」当排序锚点：回复排到问句后面，
+ * 其余消息仍按自己的 id 排。
+ */
+internal fun orderForDisplay(messages: List<MessageEntity>): List<MessageEntity> {
+    val byId = messages.associateBy { it.id }
+    return messages
+        .map { m ->
+            val parent = m.replyToId?.let { byId[it] }
+            val anchor = if (m.role == "assistant" && parent != null && parent.role == "user") {
+                parent.id
+            } else {
+                m.id
+            }
+            m to anchor
+        }
+        .sortedWith(compareBy({ it.second }, { it.first.id }))
+        .map { it.first }
+}

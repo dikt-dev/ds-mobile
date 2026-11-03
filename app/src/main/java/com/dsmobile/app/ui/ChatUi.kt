@@ -1070,8 +1070,10 @@ fun MessageItem(
         if (showMeta) {
             MetaRow(
                 name = "大肥鱼",
-                // 主动消息单独标一下：她不是被问出来的，是自己冒出来的
-                channel = if (message.proactiveKind != null) "主动" else channel,
+                // 只在「主动消息」时打标：她不是被问出来的，是自己冒出来的。
+                // 平台标签（QQ / 网页 / App）在手机上看纯属噪音——人在 App 里，
+                // 自己的消息却挂着「QQ」，只会让人以为串台了。
+                channel = if (message.proactiveKind != null) "主动" else null,
                 time = messageTime(message.createdAt),
                 isUser = isUser,
             )

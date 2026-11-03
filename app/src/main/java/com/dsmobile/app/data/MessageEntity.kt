@@ -13,4 +13,6 @@ data class MessageEntity(
     val turnId: Long? = null,
     val proactiveKind: String? = null,
     val clientMessageId: String? = null,
+    /** 回复的是哪条用户消息；补发的旧消息靠它挂回原位。 */
+    val replyToId: Long? = null,
 )
