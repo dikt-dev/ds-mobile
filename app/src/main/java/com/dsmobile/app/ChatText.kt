@@ -188,6 +188,7 @@ internal fun biliMetaText(preview: BiliPreview, url: String): String = buildStri
     appendLine("- 标题：${preview.title}")
     if (preview.owner.isNotBlank()) appendLine("- UP主：${preview.owner}")
     if (preview.duration > 0) appendLine("- 时长：${formatDuration(preview.duration)}")
+    if (preview.cover.isNotBlank()) appendLine("- 封面：${preview.cover}")
     appendLine("- 链接：$url")
     appendLine()
     appendLine("## 官方摘要")
