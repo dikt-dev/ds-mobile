@@ -261,6 +261,11 @@ class ApiClient(
             val textBody = response.body?.string().orEmpty()
             if (!response.isSuccessful) throw ApiException(errorText(response.code, textBody))
             val obj = JSONObject(textBody)
+            // 被闸门压住：她这会儿在睡/在忙，消息已经落库，到点会回。
+            // 这不是失败，必须和「回复为空」分开，否则界面弹"发送失败"，人就会反复重发。
+            if (obj.optBoolean("held", false)) {
+                throw HeldException(obj.optString("until"), obj.optString("reason"))
+            }
             if (obj.optBoolean("no_reply", false)) {
                 return@withContext NO_REPLY
             }
@@ -433,6 +438,11 @@ class ApiClient(
             val textBody = response.body?.string().orEmpty()
             if (!response.isSuccessful) throw ApiException(errorText(response.code, textBody))
             val obj = JSONObject(textBody)
+            // 被闸门压住：她这会儿在睡/在忙，消息已经落库，到点会回。
+            // 这不是失败，必须和「回复为空」分开，否则界面弹"发送失败"，人就会反复重发。
+            if (obj.optBoolean("held", false)) {
+                throw HeldException(obj.optString("until"), obj.optString("reason"))
+            }
             if (obj.optBoolean("no_reply", false)) {
                 return@withContext NO_REPLY
             }
@@ -1224,4 +1234,11 @@ data class LifeStatus(
  * 客户端要把它和「发送失败」分开，不然用户会以为消息丢了，反复重发。
  */
 class HeldException(val until: String, val reason: String) :
-    Exception(if (until.isBlank()) "她这会儿在忙，等会儿回你" else "她这会儿在忙，${until} 再回你")
+    Exception(
+        when {
+            reason == "asleep" && until.isNotBlank() -> "她睡着了，${until} 醒了回你"
+            reason == "asleep" -> "她睡着了，醒来回你"
+            until.isBlank() -> "她这会儿在忙，等会儿回你"
+            else -> "她这会儿在忙，${until} 再回你"
+        },
+    )
