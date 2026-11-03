@@ -24,13 +24,40 @@ fun gifContactSheet(bytes: ByteArray, cols: Int = 3, rows: Int = 3): Bitmap? {
 
     val count = cols * rows
     val duration = movie.duration().let { if (it > 0) it else 1000 }
+    val frames = (0 until count).mapNotNull { i ->
+        val bmp = Bitmap.createBitmap(srcW, srcH, Bitmap.Config.ARGB_8888)
+        val c = Canvas(bmp)
+        movie.setTime((duration.toLong() * i / count).toInt())
+        movie.draw(c, 0f, 0f)
+        bmp
+    }
+    return contactSheet(frames, cols, rows, "同一张动图，按时间从左到右、从上到下")
+}
+
+/**
+ * 把一组画面拼成一张宫格图（动图、视频共用）。
+ *
+ * 单发一张宫格的好处是"过程"能一眼看全；坏处是每格变小、细节糊。
+ * 所以视频那边是「12 张原帧 + 1 张宫格」一起发：细节看单帧，先后看宫格。
+ */
+fun contactSheet(
+    frames: List<Bitmap>,
+    cols: Int,
+    rows: Int,
+    header: String,
+    totalWidth: Int = 1000,
+): Bitmap? {
+    if (frames.isEmpty()) return null
+    val srcW = frames[0].width
+    val srcH = frames[0].height
+    if (srcW <= 0 || srcH <= 0) return null
 
     // 整张图控制在 ~1000px 宽：再大模型也是缩放，白白多传几百 KB。
-    val cellW = (1000 / cols).coerceAtLeast(160)
+    val cellW = (totalWidth / cols).coerceAtLeast(160)
     val cellH = (cellW.toFloat() * srcH / srcW).toInt().coerceAtLeast(1)
-    val header = 34
+    val headerH = if (header.isBlank()) 0 else 34
 
-    val sheet = Bitmap.createBitmap(cellW * cols, cellH * rows + header, Bitmap.Config.ARGB_8888)
+    val sheet = Bitmap.createBitmap(cellW * cols, cellH * rows + headerH, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(sheet)
     canvas.drawColor(Color.WHITE)
 
@@ -39,25 +66,26 @@ fun gifContactSheet(bytes: ByteArray, cols: Int = 3, rows: Int = 3): Bitmap? {
         textSize = 22f
         isAntiAlias = true
     }
-    canvas.drawText("同一张动图，按时间从左到右、从上到下", 12f, 24f, text)
+    if (headerH > 0) canvas.drawText(header, 12f, 24f, text)
 
-    val framePaint = Paint(Paint.FILTER_BITMAP_FLAG)
-    val scale = cellW.toFloat() / srcW
-    for (i in 0 until count) {
-        movie.setTime((duration.toLong() * i / count).toInt())
-        canvas.save()
-        canvas.translate((i % cols) * cellW.toFloat(), (header + (i / cols) * cellH).toFloat())
-        canvas.scale(scale, scale)
-        movie.draw(canvas, 0f, 0f)
-        canvas.restore()
+    val paint = Paint(Paint.FILTER_BITMAP_FLAG)
+    for (i in frames.indices) {
+        if (i >= cols * rows) break
+        val dst = android.graphics.Rect(
+            (i % cols) * cellW,
+            headerH + (i / cols) * cellH,
+            (i % cols) * cellW + cellW,
+            headerH + (i / cols) * cellH + cellH,
+        )
+        canvas.drawBitmap(frames[i], null, dst, paint)
     }
-    // 分隔线：九格贴在一起时，模型容易把两格看成一格
+    // 分隔线：格子贴在一起时，模型容易把两格看成一格
     val linePaint = Paint().apply {
         color = Color.rgb(225, 225, 225)
         strokeWidth = 2f
     }
-    for (c in 1 until cols) canvas.drawLine((c * cellW).toFloat(), header.toFloat(), (c * cellW).toFloat(), sheet.height.toFloat(), linePaint)
-    for (r in 1 until rows) canvas.drawLine(0f, (header + r * cellH).toFloat(), sheet.width.toFloat(), (header + r * cellH).toFloat(), linePaint)
+    for (c in 1 until cols) canvas.drawLine((c * cellW).toFloat(), headerH.toFloat(), (c * cellW).toFloat(), sheet.height.toFloat(), linePaint)
+    for (r in 1 until rows) canvas.drawLine(0f, (headerH + r * cellH).toFloat(), sheet.width.toFloat(), (headerH + r * cellH).toFloat(), linePaint)
 
     return sheet
 }

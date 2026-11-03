@@ -674,7 +674,22 @@ private fun ChatScreen(
                     "video" -> {
                         val key = api.uploadMedia(context, attachment.uri)
                         val caption = if (text.isBlank()) "[视频:$key]" else "$text\n[视频:$key]"
-                        api.chat(caption, clientId)
+                        // 抽 12 帧 + 一张 4x3 宫格：单帧看细节，宫格看先后。
+                        // 抽不出来（编码怪、时长读不到）就退回纯文字，至少不挡住消息。
+                        val shots = runCatching { VideoFrames.extract(context, attachment.uri, 12) }
+                            .getOrDefault(emptyList())
+                        if (shots.isEmpty()) {
+                            api.chat(caption, clientId)
+                        } else {
+                            val sheet = runCatching {
+                                contactSheet(shots, 4, 3, "同一段视频，按时间从左到右、从上到下")
+                            }.getOrNull()
+                            val frames = shots.map { bitmapToDataUrl(it) } +
+                                (sheet?.let { listOf(bitmapToDataUrl(it)) } ?: emptyList())
+                            shots.forEach { it.recycle() }
+                            sheet?.recycle()
+                            api.chatWithImages(caption, frames, clientId, transient = true)
+                        }
                     }
                     else -> {
                         val doc = DocumentParser.parse(context, attachment.uri)
