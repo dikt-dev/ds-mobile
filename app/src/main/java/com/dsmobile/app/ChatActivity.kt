@@ -527,11 +527,9 @@ private fun ChatScreen(
         try {
             // 非流式等待完整回复，避免一边输出一边重排；语音先合成，再让消息进入列表逐句展示。
             val allFrames = frames + detailFrames
-            val replyText = if (detailFrames.isNotEmpty()) {
-                outgoing + "\n\n（后面这几张是你看得比较仔细的时刻，左上角标着时间）"
-            } else {
-                outgoing
-            }
+            // 静帧说明不再拼进正文：那段话以前会落库，然后原样出现在气泡里。
+            // 现在只发画面，提示词由服务端补。
+            val replyText = outgoing
             val reply = coroutineScope {
                 // 等她回话的这几秒里每 0.7 秒对一次账：服务端一落库，pending 就被换成正身，
                 // 气泡从"发送中"变"已发送"。否则界面毫无变化，看着像没发出去。
