@@ -637,7 +637,36 @@ private fun ChatScreen(
                             // GIF 的 key 上传后就知道，直接按 key 绑，不依赖"认领"
                             localDrawable?.let { MediaCaches.putImage(key, it) }
                             val caption = if (text.isBlank()) "[GIF:$key]" else "$text\n[GIF:$key]"
-                            api.chat(caption, clientId)
+                            // 动图几 MB，模型那边会整段丢掉——只看到一串路径，等于没看见。
+                            // 这里同时补一张首帧静图给它看画面；气泡里仍然是会动的 GIF。
+                            val frame = withContext(Dispatchers.IO) {
+                                runCatching {
+                                    val bmp = ImageDecoder.decodeBitmap(
+                                        ImageDecoder.createSource(context.contentResolver, attachment.uri),
+                                    )
+                                    val maxSide = 1200
+                                    val scale = minOf(1f, maxSide.toFloat() / maxOf(bmp.width, bmp.height))
+                                    val scaled = if (scale < 1f) {
+                                        Bitmap.createScaledBitmap(
+                                            bmp,
+                                            (bmp.width * scale).toInt().coerceAtLeast(1),
+                                            (bmp.height * scale).toInt().coerceAtLeast(1),
+                                            true,
+                                        )
+                                    } else {
+                                        bmp
+                                    }
+                                    val dataUrl = bitmapToDataUrl(scaled)
+                                    if (scaled !== bmp) scaled.recycle()
+                                    bmp.recycle()
+                                    dataUrl
+                                }.getOrNull()
+                            }
+                            if (frame != null) {
+                                api.chatWithImages(caption, listOf(frame), clientId, transient = true)
+                            } else {
+                                api.chat(caption, clientId)
+                            }
                         } else {
                             val dataUrl = MediaUtils.imageToDataUrl(context, attachment.uri)
                             api.chatWithImage(text, dataUrl, clientId)
