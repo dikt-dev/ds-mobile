@@ -674,21 +674,34 @@ private fun ChatScreen(
                     "video" -> {
                         val key = api.uploadMedia(context, attachment.uri)
                         val caption = if (text.isBlank()) "[视频:$key]" else "$text\n[视频:$key]"
-                        // 抽 12 帧 + 一张 4x3 宫格：单帧看细节，宫格看先后。
+                        // 排版跟 B 站抽帧一致：固定 3 列，横屏 3×3、竖屏 3×2，时长越长越多张。
+                        // 只发宫格不发单帧——13 张图（12 帧 + 1 宫格）换来的细节，
+                        // 宫格放大后一样读得到，但 token 差一个量级。
                         // 抽不出来（编码怪、时长读不到）就退回纯文字，至少不挡住消息。
-                        val shots = runCatching { VideoFrames.extract(context, attachment.uri, 12) }
-                            .getOrDefault(emptyList())
-                        if (shots.isEmpty()) {
+                        val planned = runCatching { VideoFrames.extractPlanned(context, attachment.uri) }
+                            .getOrNull()
+                        if (planned == null || planned.frames.isEmpty()) {
                             api.chat(caption, clientId)
                         } else {
-                            val sheet = runCatching {
-                                contactSheet(shots, 4, 3, "同一段视频，按时间从左到右、从上到下")
-                            }.getOrNull()
-                            val frames = shots.map { bitmapToDataUrl(it) } +
-                                (sheet?.let { listOf(bitmapToDataUrl(it)) } ?: emptyList())
-                            shots.forEach { it.recycle() }
-                            sheet?.recycle()
-                            api.chatWithImages(caption, frames, clientId, transient = true)
+                            val plan = planned.plan
+                            val sheets = runCatching {
+                                planned.frames.chunked(plan.perSheet).mapIndexedNotNull { i, chunk ->
+                                    val header = if (plan.sheets <= 1) {
+                                        "同一段视频，按时间从左到右、从上到下"
+                                    } else {
+                                        "同一段视频 第 ${i + 1}/${plan.sheets} 张，按时间从左到右、从上到下"
+                                    }
+                                    contactSheet(chunk, plan.cols, plan.rows, header)
+                                }
+                            }.getOrDefault(emptyList())
+                            planned.frames.forEach { it.recycle() }
+                            if (sheets.isEmpty()) {
+                                api.chat(caption, clientId)
+                            } else {
+                                val frames = sheets.map { bitmapToDataUrl(it) }
+                                sheets.forEach { it.recycle() }
+                                api.chatWithImages(caption, frames, clientId, transient = true)
+                            }
                         }
                     }
                     else -> {

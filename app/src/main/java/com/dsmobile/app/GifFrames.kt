@@ -7,22 +7,27 @@ import android.graphics.Movie
 import android.graphics.Paint
 
 /**
- * 把动图抽成九宫格静图给模型看。
+ * 把动图抽成 3 列宫格静图给模型看（横屏 3×3 九格、竖屏 3×2 六格）。
  *
  * 只发首帧等于只发了张图片：她能看到"谁、拿着什么"，但看不到"怎么动的"。
- * 九帧按时间排开，苹果冒出来、被瞪回去、碗被翻过来这种过程就读得出来了。
+ * 帧按时间排开，苹果冒出来、被瞪回去、碗被翻过来这种过程就读得出来了。
+ *
+ * 列数和 B 站视频抽帧保持一致（都是 3 列）——两边画面比例对得上，
+ * 她看同一个动图和同一个视频时才不会有"换了一种格式"的割裂感。
  *
  * 用 [Movie] 而不是 [android.graphics.drawable.AnimatedImageDrawable]：
  * 后者只能播，拿不到任意时刻的帧。Movie 虽然标了 deprecated，但解 GIF 帧这一步
  * 一直是它最稳，其它方案要么要多带一个解码库，要么得自己写 GIF 解析。
  */
-fun gifContactSheet(bytes: ByteArray, cols: Int = 3, rows: Int = 3): Bitmap? {
+fun gifContactSheet(bytes: ByteArray, cols: Int = 3, rows: Int = 0): Bitmap? {
     val movie = runCatching { Movie.decodeByteArray(bytes, 0, bytes.size) }.getOrNull() ?: return null
     val srcW = movie.width()
     val srcH = movie.height()
     if (srcW <= 0 || srcH <= 0) return null
 
-    val count = cols * rows
+    // rows = 0 表示交给宽高比决定：竖屏 3×2，横屏 3×3
+    val useRows = if (rows > 0) rows else if (srcW.toFloat() / srcH < 0.8f) 2 else 3
+    val count = cols * useRows
     val duration = movie.duration().let { if (it > 0) it else 1000 }
     val frames = (0 until count).mapNotNull { i ->
         val bmp = Bitmap.createBitmap(srcW, srcH, Bitmap.Config.ARGB_8888)
@@ -31,14 +36,14 @@ fun gifContactSheet(bytes: ByteArray, cols: Int = 3, rows: Int = 3): Bitmap? {
         movie.draw(c, 0f, 0f)
         bmp
     }
-    return contactSheet(frames, cols, rows, "同一张动图，按时间从左到右、从上到下")
+    return contactSheet(frames, cols, useRows, "同一张动图，按时间从左到右、从上到下")
 }
 
 /**
  * 把一组画面拼成一张宫格图（动图、视频共用）。
  *
  * 单发一张宫格的好处是"过程"能一眼看全；坏处是每格变小、细节糊。
- * 所以视频那边是「12 张原帧 + 1 张宫格」一起发：细节看单帧，先后看宫格。
+ * 视频那边同样是「只发宫格」：13 张图换来的细节，宫格放大后一样读得到。
  */
 fun contactSheet(
     frames: List<Bitmap>,
