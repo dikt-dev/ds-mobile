@@ -22,8 +22,10 @@ android {
             // 私人自用：用 debug 签名，安装 release 包获得更顺的 Compose/R8 运行性能。
             signingConfig = signingConfigs.getByName("debug")
             // 2026-10-31 打开 R8：体积 107 MB → 目标 40~60 MB；规则见 proguard-rules.pro
-            isMinifyEnabled = true
-            isShrinkResources = true
+            // 机器内存紧张（8G，R8 要 2.5G+ 原生内存）时可以 -PnoMinify 出一个未混淆的 release：
+            // 仍是 release 构建（不是 debug 包），只是体积大一些。
+            isMinifyEnabled = !project.hasProperty("noMinify")
+            isShrinkResources = !project.hasProperty("noMinify")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",

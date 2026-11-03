@@ -219,6 +219,8 @@ class KeepAliveService : Service() {
                 delay(5_000)
                 continue
             }
+            // 服务端重置过库时，本地高水位会一直超前，轮询永远拿不到新消息
+            runCatching { healEventWatermark(ApiClient(settings.baseUrl, token), settings) }
             try {
                 var after = settings.lastEventId
                 var last = after

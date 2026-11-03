@@ -92,7 +92,11 @@ object ProactiveScheduler {
         val token = settings.token
         if (token.isNullOrBlank()) return@withContext emptyList()
 
-        val plan = runCatching { ApiClient(settings.baseUrl, token).proactivePlan() }
+        val api = ApiClient(settings.baseUrl, token)
+        // 进前台顺便校一次高水位：服务端换库后 id 从头涨，不校就永远收不到通知
+        runCatching { healEventWatermark(api, settings) }
+
+        val plan = runCatching { api.proactivePlan() }
             .onFailure { Log.w(TAG, "plan fetch failed: ${it.message}") }
             .getOrNull()
 

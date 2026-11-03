@@ -117,6 +117,9 @@ class ProactiveCheckReceiver : BroadcastReceiver() {
             return true
         }
 
+        // 服务端重置过库的话，先对齐高水位，否则下面这一句永远返回空
+        healEventWatermark(api, settings)
+
         val page = runCatching { api.events(settings.lastEventId, 50) }.getOrNull() ?: return false
         if (page.messages.isNotEmpty()) {
             settings.lastEventId = maxOf(settings.lastEventId, page.messages.maxOf { it.id })
