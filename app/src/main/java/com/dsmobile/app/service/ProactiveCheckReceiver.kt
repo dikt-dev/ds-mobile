@@ -37,6 +37,22 @@ class ProactiveCheckReceiver : BroadcastReceiver() {
         val targetMs = intent.getLongExtra(EXTRA_TARGET_MS, 0L)
         val retry = intent.getIntExtra(EXTRA_RETRY, 0)
 
+        // 补看：不看计划，直接拉一次增量，然后把下一个补看挂上。
+        // 目标时刻传 0，check() 就不会走「太早/重试」那条线。
+        if (slotKey == "catchup") {
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    check(app, "catchup", 0L)
+                } catch (t: Throwable) {
+                    Log.w(TAG, "catchup failed: ${t.message}")
+                } finally {
+                    ProactiveScheduler.armCatchUp(app)
+                    pending.finish()
+                }
+            }
+            return
+        }
+
         // 翻页闹钟：只重算当天计划（顺带把自己推到明天），不发请求
         if (slotKey == "rollover") {
             CoroutineScope(Dispatchers.IO).launch {

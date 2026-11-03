@@ -48,6 +48,17 @@ object ProactiveScheduler {
     /** 每天凌晨的「翻页」闹钟：不依赖用户当天打开过 App。 */
     private const val ROLLOVER_REQUEST = 201
 
+    /**
+     * 「补看」闹钟：不看档位计划，每 30 分钟醒一次，只拉一次增量。
+     *
+     * 为什么需要：档位闹钟依赖 refresh() 挂表，一旦计划拉取失败、App 当天没打开、
+     * 或者服务端生成比档位晚几分钟，那次提醒就没了（线上就这么丢的：消息在，没人叫）。
+     * 补看闹钟不依赖任何计划，只要进程能醒就一定能补上，一天 40 次请求，可以忽略。
+     */
+    private const val CATCHUP_REQUEST = 400
+    const val CATCHUP_INTERVAL_MS = 30 * 60_000L
+    private const val CATCHUP_FIRST_DELAY_MS = 5 * 60_000L
+
     private const val MAX_SLOTS = 4
     private const val RETRY_REQUEST_BASE = 100
     private const val RETRY_MAX = 4
@@ -119,6 +130,9 @@ object ProactiveScheduler {
             "scheduled=${scheduled.size} " +
                 scheduled.joinToString { "${it.slotKey}@${it.atLabel}" },
         )
+        // 挂完档位顺手把「补看」链接上：档位漏了，补看还能兜住。
+        armCatchUp(app, CATCHUP_FIRST_DELAY_MS)
+        ensureDailyRollover(app)
         scheduled
     }
 
@@ -167,6 +181,16 @@ object ProactiveScheduler {
         val at = System.currentTimeMillis() + seconds * 1000
         setAlarm(context, 200, at, "debug", at, 0)
         Log.i(TAG, "debug alarm in ${seconds}s")
+    }
+
+    /**
+     * 挂下一次「补看」。用 setAndAllowWhileIdle（不是精确闹钟），Doze 里也会醒。
+     * 醒来后无论取没取到消息都重新挂一次，形成 30 分钟的链。
+     */
+    fun armCatchUp(context: Context, delayMs: Long = CATCHUP_INTERVAL_MS) {
+        val at = System.currentTimeMillis() + delayMs
+        setAlarm(context, CATCHUP_REQUEST, at, "catchup", 0L, 0)
+        Log.i(TAG, "catchup armed in " + delayMs / 60_000 + "min")
     }
 
     fun cancelAll(context: Context) {
