@@ -215,7 +215,21 @@ class KeepAliveService : Service() {
         }
     }
 
-    /** 增量消息轮询：App 在后台时给新助手消息发通知。 */
+    /**
+     * 增量消息轮询：App 在后台时给新助手消息发通知。
+     *
+     * 间隔不是固定 5 秒——那是"随时可能来消息"的假设，代价是一天 17,280 次请求，
+     * 绝大多数时候什么都没拉到。改成三档：
+     *
+     * | 状态 | 间隔 |
+     * | --- | --- |
+     * | 刚收到新消息（2 分钟窗口内） | 5 秒（她可能连发几句） |
+     * | 聊天页可见 | 30 秒（不弹通知，只为让高水位跟上） |
+     * | 其余后台时间 | 45 秒 ± 15% 抖动 |
+     *
+     * 一天约 2,000 次，比原来少八成；最坏延迟 45 秒，而这层本来就是"锁屏也能收到"，
+     * 真要 5 秒级的实时感，聊天页开着时走的是 ChatActivity 自己的同步。
+     */
     private suspend fun eventLoop() {
         // 首次启动先取最新 id 作为基线，避免把历史消息全部弹一遍
         while (scope.isActive && settings.lastEventId <= 0) {
@@ -230,10 +244,11 @@ class KeepAliveService : Service() {
             }
         }
 
+        var burstUntil = 0L
         while (scope.isActive) {
             val token = settings.token
             if (token.isNullOrBlank()) {
-                delay(5_000)
+                delay(10_000)
                 continue
             }
             // 服务端重置过库时，本地高水位会一直超前，轮询永远拿不到新消息
@@ -269,13 +284,26 @@ class KeepAliveService : Service() {
                     if (next <= after) break
                     after = next
                 }
-                if (last != settings.lastEventId) settings.lastEventId = last
+                if (last != settings.lastEventId) {
+                    settings.lastEventId = last
+                    // 有新消息就进入 2 分钟的快速档：她常常连发两三条
+                    burstUntil = System.currentTimeMillis() + 2 * 60_000L
+                }
                 markConnection(true)
             } catch (e: Exception) {
                 Log.w(TAG, "event poll failed: ${e.message}")
                 markConnection(false)
             }
-            delay(5_000)
+
+            val now = System.currentTimeMillis()
+            val gap = when {
+                now < burstUntil -> 5_000L
+                appVisible -> 30_000L
+                // ±15% 抖动：避免多个实例/重连时整齐地同时打
+                else -> 45_000L + (0..6750).random() - 3375
+            }
+            Log.d(TAG, "next poll in ${gap}ms (visible=$appVisible burst=${now < burstUntil})")
+            delay(gap.coerceAtLeast(2_000L))
         }
     }
 
