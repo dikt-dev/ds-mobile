@@ -60,7 +60,13 @@ class ProactiveCheckReceiver : BroadcastReceiver() {
                     settings.token?.let { token ->
                         runCatching { ApiClient(settings.baseUrl, token).flushHeld() }
                     }
-                    check(app, "hold", System.currentTimeMillis())
+                    val ok = check(app, "hold", System.currentTimeMillis(), holdPull = true)
+                    // 服务端可能还没生成出来（cron 抖动 / 模型失败），3 分钟后自己再拉一次
+                    if (!ok) {
+                        ProactiveScheduler.scheduleRetry(
+                            app, "hold", System.currentTimeMillis(), 1,
+                        )
+                    }
                 } catch (t: Throwable) {
                     Log.w(TAG, "hold pull failed: ${t.message}")
                 } finally {
@@ -106,7 +112,12 @@ class ProactiveCheckReceiver : BroadcastReceiver() {
     }
 
     /** @return true = 这件事结束了（取到了 / 不需要了）；false = 窗口内可以再试一次。 */
-    private suspend fun check(app: Context, slotKey: String, targetMs: Long): Boolean {
+    private suspend fun check(
+        app: Context,
+        slotKey: String,
+        targetMs: Long,
+        holdPull: Boolean = false,
+    ): Boolean {
         val settings = SettingsStore(app)
         if (!settings.proactiveNotifyEnabled) return true
         val token = settings.token ?: return true
@@ -142,8 +153,12 @@ class ProactiveCheckReceiver : BroadcastReceiver() {
             settings.lastEventId = maxOf(settings.lastEventId, page.messages.maxOf { it.id })
         }
 
+        // 闸门到点拉取：她这条是回复，不是主动消息，不能按 proactiveKind 过滤
         val fresh = page.messages
-            .filter { it.id > settings.lastNotifiedId && isProactive(it) }
+            .filter {
+                it.id > settings.lastNotifiedId &&
+                    (if (holdPull) it.role == "assistant" else isProactive(it))
+            }
             .sortedBy { it.id }
         Log.i(
             TAG,

@@ -986,10 +986,12 @@ private fun ChatScreen(
         }
         while (true) {
             delay(5_000)
+            // 退到后台就完全停：这时靠闹钟到点拉，前台不替后台打请求
+            if (!com.dsmobile.app.service.KeepAliveService.appVisible) continue
             try {
                 syncer.syncEvents()
             } catch (_: Exception) {
-                // 后台轮询失败不打断界面，下一轮重试
+                // 轮询失败不打断界面，下一轮重试
             }
         }
     }
@@ -1109,7 +1111,9 @@ private fun ChatScreen(
     }
     LaunchedEffect(Unit) {
         while (true) {
-            lifeStatus = runCatching { api.aiStatus() }.getOrNull()
+            if (com.dsmobile.app.service.KeepAliveService.appVisible) {
+                lifeStatus = runCatching { api.aiStatus() }.getOrNull()
+            }
             delay(180_000)
         }
     }

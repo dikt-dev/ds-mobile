@@ -204,7 +204,9 @@ object ProactiveScheduler {
     fun scheduleHoldPull(context: Context, untilMs: Long) {
         if (untilMs <= 0L) return
         val triggerAt = maxOf(System.currentTimeMillis() + 15_000L, untilMs + 20_000L)
-        setAlarm(context, HOLD_REQUEST, triggerAt, "hold", untilMs, 0)
+        // 请求码按分钟错开：两条被压的消息若用同一个码，后者会顶掉前者的闹钟
+        val code = HOLD_REQUEST + ((untilMs / 60_000L) % 100L).toInt()
+        setAlarm(context, code, triggerAt, "hold", untilMs, 0)
         Log.i(TAG, "hold alarm in " + (triggerAt - System.currentTimeMillis()) / 1000 + "s")
     }
 
