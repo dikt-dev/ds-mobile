@@ -575,6 +575,8 @@ private fun ChatScreen(
             frames.forEach { it.recycle() }
             runCatching { syncer.syncEvents() }
             runCatching { syncer.reconcilePending() }
+            // 到点拉取：按她忙完/睡醒的时刻挂一次闹钟，不再靠轮询
+            runCatching { com.dsmobile.app.service.ProactiveScheduler.scheduleHoldPull(context, e.untilMs) }
             dao.deletePending(pendingMessage.copy(id = pendingId))
             pendingCards.remove(pendingId)
             failedPendingIds.remove(pendingId)
@@ -1174,6 +1176,7 @@ private fun ChatScreen(
                                     syncer.syncEvents()
                                     status = ""
                                 } catch (e: HeldException) {
+                                    runCatching { com.dsmobile.app.service.ProactiveScheduler.scheduleHoldPull(context, e.untilMs) }
                                     dao.deletePending(message)
                                     failedPendingIds.remove(message.id)
                                     status = ""

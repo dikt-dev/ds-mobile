@@ -46,7 +46,24 @@ class ProactiveCheckReceiver : BroadcastReceiver() {
                 } catch (t: Throwable) {
                     Log.w(TAG, "catchup failed: ${t.message}")
                 } finally {
-                    ProactiveScheduler.armCatchUp(app)
+                    pending.finish()
+                }
+            }
+            return
+        }
+
+        // 到点拉取：她被压住的消息这时候才生成。先催一次，再走下面的增量拉取。
+        if (slotKey == "hold") {
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    val settings = SettingsStore(app)
+                    settings.token?.let { token ->
+                        runCatching { ApiClient(settings.baseUrl, token).flushHeld() }
+                    }
+                    check(app, "hold", System.currentTimeMillis())
+                } catch (t: Throwable) {
+                    Log.w(TAG, "hold pull failed: ${t.message}")
+                } finally {
                     pending.finish()
                 }
             }

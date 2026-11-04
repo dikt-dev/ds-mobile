@@ -34,12 +34,9 @@ import kotlinx.coroutines.launch
 /**
  * 后台常驻服务（可选，默认关）：锁屏也能收到她的消息。
  *
- * 两条循环：
- * ① eventLoop   每 5 秒拉一次 /api/app/events 增量，App 不在前台就给新消息弹通知
- * ② heartbeatLoop 每 5 分钟报一次活着，服务端据此判断通道是否掉线
- *
- * 关掉它不等于没有通知——「到点提醒」闹钟（ProactiveScheduler）仍会兜底，
- * 只是延迟从 5 秒变成最多 30 分钟。
+ * 不轮询：服务启动时补拉一次、报一次心跳，然后完全安静。
+ * 之后的每一次「到点拉取」都由 AlarmManager 闹钟触发（ProactiveScheduler）：
+ * 主动消息按档位、她被闸门压住按 until_ms。没有闹钟就不碰 worker。
  */
 class KeepAliveService : Service() {
 
@@ -134,13 +131,14 @@ class KeepAliveService : Service() {
         startForegroundCompat(buildNotification("正在启动…"))
         running = true
         lastStatus = "正在启动…"
+        // 启动时补一次（可能是关机/杀进程期间错过的），之后不再主动查询
         eventJob = scope.launch {
             delay(1_500)
-            eventLoop()
+            pullOnce()
         }
         heartbeatJob = scope.launch {
             delay(2_500)
-            heartbeatLoop()
+            sendHeartbeatOnce()
         }
         Log.i(TAG, "service created")
     }
@@ -193,64 +191,38 @@ class KeepAliveService : Service() {
      * 会从「已连接」变成「心跳失败 N 次」，否则它永远停在最后一次成功的状态，
      * 看上去一切正常，实际早就收不到消息了。
      */
-    private suspend fun heartbeatLoop() {
-        var failures = 0
-        while (scope.isActive) {
-            val token = settings.token
-            if (!token.isNullOrBlank()) {
-                try {
-                    ApiClient(settings.baseUrl, token).heartbeat()
-                    Log.d(TAG, "heartbeat ok")
-                    if (failures > 0) {
-                        failures = 0
-                        updateNotification(if (appVisible) "前台在线" else lastStatus)
-                    }
-                } catch (e: Exception) {
-                    failures += 1
-                    Log.w(TAG, "heartbeat failed (${failures}): ${e.message}")
-                    updateNotification("心跳失败 $failures 次（${e.message?.take(40) ?: "未知"}）")
-                }
-            }
-            delay(5 * 60_000L)
+    /** 只报一次：剩下的心跳由闹钟醒来时顺手发（ProactiveCheckReceiver）。 */
+    private suspend fun sendHeartbeatOnce() {
+        val token = settings.token ?: return
+        try {
+            ApiClient(settings.baseUrl, token).heartbeat()
+            Log.d(TAG, "heartbeat ok")
+        } catch (e: Exception) {
+            Log.w(TAG, "heartbeat failed: ${e.message}")
         }
     }
 
-    /**
-     * 增量消息轮询：App 在后台时给新助手消息发通知。
-     *
-     * 间隔不是固定 5 秒——那是"随时可能来消息"的假设，代价是一天 17,280 次请求，
-     * 绝大多数时候什么都没拉到。改成三档：
-     *
-     * | 状态 | 间隔 |
-     * | --- | --- |
-     * | 刚收到新消息（2 分钟窗口内） | 5 秒（她可能连发几句） |
-     * | 聊天页可见 | 30 秒（不弹通知，只为让高水位跟上） |
-     * | 其余后台时间 | 45 秒 ± 15% 抖动 |
-     *
-     * 一天约 2,000 次，比原来少八成；最坏延迟 45 秒，而这层本来就是"锁屏也能收到"，
-     * 真要 5 秒级的实时感，聊天页开着时走的是 ChatActivity 自己的同步。
-     */
-    private suspend fun eventLoop() {
-        // 首次启动先取最新 id 作为基线，避免把历史消息全部弹一遍
-        while (scope.isActive && settings.lastEventId <= 0) {
+    /** 补拉一次增量：只在服务启动时调用，不做循环。 */
+    private suspend fun pullOnce() {
+        // 首次启动先取最新 id 作为基线，避免把历史消息全部弹一遍。
+        // 最多试 3 次：不做「失败就一直重试」，那又是另一种轮询。
+        var tries = 0
+        while (settings.lastEventId <= 0 && tries < 3) {
             val token = settings.token ?: break
+            tries += 1
             try {
                 val page = ApiClient(settings.baseUrl, token).events(0, 1, latest = true)
                 settings.lastEventId = page.latestId
                 Log.i(TAG, "event baseline=${page.latestId}")
             } catch (e: Exception) {
-                Log.w(TAG, "event baseline failed: ${e.message}")
-                delay(5_000)
+                Log.w(TAG, "event baseline failed ($tries/3): ${e.message}")
+                if (tries < 3) delay(5_000)
             }
         }
 
-        var burstUntil = 0L
-        while (scope.isActive) {
+        run {
             val token = settings.token
-            if (token.isNullOrBlank()) {
-                delay(10_000)
-                continue
-            }
+            if (token.isNullOrBlank()) return
             // 服务端重置过库时，本地高水位会一直超前，轮询永远拿不到新消息
             runCatching { healEventWatermark(ApiClient(settings.baseUrl, token), settings) }
             try {
@@ -286,8 +258,6 @@ class KeepAliveService : Service() {
                 }
                 if (last != settings.lastEventId) {
                     settings.lastEventId = last
-                    // 有新消息就进入 2 分钟的快速档：她常常连发两三条
-                    burstUntil = System.currentTimeMillis() + 2 * 60_000L
                 }
                 markConnection(true)
             } catch (e: Exception) {
@@ -295,15 +265,6 @@ class KeepAliveService : Service() {
                 markConnection(false)
             }
 
-            val now = System.currentTimeMillis()
-            val gap = when {
-                now < burstUntil -> 5_000L
-                appVisible -> 30_000L
-                // ±15% 抖动：避免多个实例/重连时整齐地同时打
-                else -> 45_000L + (0..6750).random() - 3375
-            }
-            Log.d(TAG, "next poll in ${gap}ms (visible=$appVisible burst=${now < burstUntil})")
-            delay(gap.coerceAtLeast(2_000L))
         }
     }
 

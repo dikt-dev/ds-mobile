@@ -279,7 +279,7 @@ class ApiClient(
             // 被闸门压住：她这会儿在睡/在忙，消息已经落库，到点会回。
             // 这不是失败，必须和「回复为空」分开，否则界面弹"发送失败"，人就会反复重发。
             if (obj.optBoolean("held", false)) {
-                throw HeldException(obj.optString("until"), obj.optString("reason"))
+                throw HeldException(obj.optString("until"), obj.optString("reason"), obj.optLong("until_ms", 0L))
             }
             if (obj.optBoolean("no_reply", false)) {
                 return@withContext NO_REPLY
@@ -456,7 +456,7 @@ class ApiClient(
             // 被闸门压住：她这会儿在睡/在忙，消息已经落库，到点会回。
             // 这不是失败，必须和「回复为空」分开，否则界面弹"发送失败"，人就会反复重发。
             if (obj.optBoolean("held", false)) {
-                throw HeldException(obj.optString("until"), obj.optString("reason"))
+                throw HeldException(obj.optString("until"), obj.optString("reason"), obj.optLong("until_ms", 0L))
             }
             if (obj.optBoolean("no_reply", false)) {
                 return@withContext NO_REPLY
@@ -1184,6 +1184,16 @@ class ApiClient(
     }
 
     /** 她现在的状态（睡了/在忙/有空）+ 正在做什么，顶栏那行用它。 */
+    /** 到点拉取：让服务端把压着的消息生成出来（客户端按 until_ms 挂闹钟后调用）。 */
+    suspend fun flushHeld(): Int = withContext(Dispatchers.IO) {
+        val req = Request.Builder().url("$baseUrl/api/app/flush").post("{}".toRequestBody(jsonType)).build()
+        client.newCall(req).execute().use { res ->
+            if (!res.isSuccessful) return@withContext 0
+            val body = res.body?.string() ?: return@withContext 0
+            JSONObject(body).optInt("flushed", 0)
+        }
+    }
+
     suspend fun aiStatus(): LifeStatus? = withContext(Dispatchers.IO) {
         runCatching {
             val request = Request.Builder()
@@ -1285,7 +1295,7 @@ data class LifeStatus(
  * 这不是失败：服务端已经落库，只是她这会儿在忙或在睡，到 [until] 才回。
  * 客户端要把它和「发送失败」分开，不然用户会以为消息丢了，反复重发。
  */
-class HeldException(val until: String, val reason: String) :
+class HeldException(val until: String, val reason: String, val untilMs: Long = 0L) :
     Exception(
         when {
             reason == "asleep" && until.isNotBlank() -> "她睡着了，${until} 醒了回你"

@@ -60,6 +60,8 @@ object ProactiveScheduler {
      * 或者服务端生成比档位晚几分钟，那次提醒就没了（线上就这么丢的：消息在，没人叫）。
      * 补看闹钟不依赖任何计划，只要进程能醒就一定能补上，一天 40 次请求，可以忽略。
      */
+    /** 她忙完/睡醒的到点闹钟：醒来拉一次，压着的消息这时候才有。 */
+    private const val HOLD_REQUEST = 500
     private const val CATCHUP_REQUEST = 400
     const val CATCHUP_INTERVAL_MS = 30 * 60_000L
     private const val CATCHUP_FIRST_DELAY_MS = 5 * 60_000L
@@ -139,8 +141,7 @@ object ProactiveScheduler {
             "scheduled=${scheduled.size} " +
                 scheduled.joinToString { "${it.slotKey}@${it.atLabel}" },
         )
-        // 挂完档位顺手把「补看」链接上：档位漏了，补看还能兜住。
-        armCatchUp(app, CATCHUP_FIRST_DELAY_MS)
+        // 不挂补看闹钟：后台不做周期轮询，到点只由档位/闸门闹钟触发
         ensureDailyRollover(app)
         scheduled
     }
@@ -196,10 +197,15 @@ object ProactiveScheduler {
      * 挂下一次「补看」。用 setAndAllowWhileIdle（不是精确闹钟），Doze 里也会醒。
      * 醒来后无论取没取到消息都重新挂一次，形成 30 分钟的链。
      */
-    fun armCatchUp(context: Context, delayMs: Long = CATCHUP_INTERVAL_MS) {
-        val at = System.currentTimeMillis() + delayMs
-        setAlarm(context, CATCHUP_REQUEST, at, "catchup", 0L, 0)
-        Log.i(TAG, "catchup armed in " + delayMs / 60_000 + "min")
+    /**
+     * 她被闸门压住时：按服务端给的 until_ms 挂一次闹钟，到点来拉。
+     * 平时不轮询，靠这一个闹钟把回复取回来。
+     */
+    fun scheduleHoldPull(context: Context, untilMs: Long) {
+        if (untilMs <= 0L) return
+        val triggerAt = maxOf(System.currentTimeMillis() + 15_000L, untilMs + 20_000L)
+        setAlarm(context, HOLD_REQUEST, triggerAt, "hold", untilMs, 0)
+        Log.i(TAG, "hold alarm in " + (triggerAt - System.currentTimeMillis()) / 1000 + "s")
     }
 
     fun cancelAll(context: Context) {
