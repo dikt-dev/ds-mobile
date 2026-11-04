@@ -32,10 +32,14 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
- * 阶段 0 的前台服务 spike：
- * 每 3 秒请求一次 Worker /api/health，更新常驻通知，验证划掉后台后仍能存活。
+ * 后台常驻服务（可选，默认关）：锁屏也能收到她的消息。
  *
- * 阶段 1 会把它替换为正式的 AppEventService（增量消息轮询/通知/本地库）。
+ * 两条循环：
+ * ① eventLoop   每 5 秒拉一次 /api/app/events 增量，App 不在前台就给新消息弹通知
+ * ② heartbeatLoop 每 5 分钟报一次活着，服务端据此判断通道是否掉线
+ *
+ * 关掉它不等于没有通知——「到点提醒」闹钟（ProactiveScheduler）仍会兜底，
+ * 只是延迟从 5 秒变成最多 30 分钟。
  */
 class KeepAliveService : Service() {
 
@@ -182,16 +186,29 @@ class KeepAliveService : Service() {
         updateNotification(lastStatus)
     }
 
-    /** 5 分钟一次心跳；Worker 3 小时收不到才会认为通道掉线。 */
+    /**
+     * 5 分钟一次心跳；Worker 3 小时收不到才会认为通道掉线。
+     *
+     * 连续失败会把次数写进常驻通知——服务被系统静默冻结时，通知栏那行字
+     * 会从「已连接」变成「心跳失败 N 次」，否则它永远停在最后一次成功的状态，
+     * 看上去一切正常，实际早就收不到消息了。
+     */
     private suspend fun heartbeatLoop() {
+        var failures = 0
         while (scope.isActive) {
             val token = settings.token
             if (!token.isNullOrBlank()) {
                 try {
                     ApiClient(settings.baseUrl, token).heartbeat()
                     Log.d(TAG, "heartbeat ok")
+                    if (failures > 0) {
+                        failures = 0
+                        updateNotification(if (appVisible) "前台在线" else lastStatus)
+                    }
                 } catch (e: Exception) {
-                    Log.w(TAG, "heartbeat failed: ${e.message}")
+                    failures += 1
+                    Log.w(TAG, "heartbeat failed (${failures}): ${e.message}")
+                    updateNotification("心跳失败 $failures 次（${e.message?.take(40) ?: "未知"}）")
                 }
             }
             delay(5 * 60_000L)
@@ -233,7 +250,16 @@ class KeepAliveService : Service() {
                             ) {
                                 notifyMessage(message)
                                 notifiedMessageIds.add(message.id)
-                                if (notifiedMessageIds.size > 800) notifiedMessageIds.clear()
+                                // 只清最旧的一批：整体 clear() 会让集合区间内的消息再弹一遍
+                                if (notifiedMessageIds.size > 800) {
+                                    val iter = notifiedMessageIds.iterator()
+                                    repeat(200) {
+                                        if (iter.hasNext()) {
+                                            iter.next()
+                                            iter.remove()
+                                        }
+                                    }
+                                }
                             }
                             last = message.id
                         }
@@ -259,11 +285,6 @@ class KeepAliveService : Service() {
             message.content,
             message.id,
         )
-    }
-
-    /** 队列推送：即使 events 轮询还没到，也先把主动消息弹出来。 */
-    private fun notifyProactive(content: String, sourceId: Long) {
-        notifyText("大肥鱼 · 主动消息", content, sourceId)
     }
 
     private fun notifyText(title: String, raw: String, sourceId: Long) {

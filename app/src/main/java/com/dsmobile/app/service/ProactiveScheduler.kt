@@ -29,7 +29,12 @@ object ProactiveScheduler {
 
     private const val TAG = "ProactiveScheduler"
 
-    /** 比计划时刻早醒多少分钟：给系统的延迟留余量。 */
+    /**
+     * 比计划时刻早醒多少分钟：给系统的延迟留余量。
+     *
+     * 3 分钟是实测值——setAndAllowWhileIdle 在 Doze 里的抖动通常在 1~5 分钟，
+     * 留 3 分钟不至于白醒太多次，也不至于每次都迟到。
+     */
     const val EARLY_MINUTES = 3L
 
     /** 超过计划时刻这么久就不再弹通知（只等下次打开 App 看）。 */
@@ -38,9 +43,9 @@ object ProactiveScheduler {
     /**
      * 离目标时刻小于这么久才允许发请求。
      *
-     * 闹钟故意提前 12 分钟挂（吸收 Doze 延迟），但提前醒来时服务端那边还没准备好，
-     * 拉回来的永远是 0 条——白醒一次、白耗一次电量。提前超过 1 分钟就只把闹钟
-     * 挪到目标前 1 分钟，不发请求。
+     * 闹钟按 EARLY_MINUTES（3 分钟）提前挂，但系统还可能提前把我们叫醒；
+     * 提前醒来时服务端那边还没准备好，拉回来的永远是 0 条——白醒一次、白耗一次电量。
+     * 提前超过 1 分钟就只把闹钟挪到目标前 1 分钟，不发请求。
      */
     const val MIN_LEAD_MS = 60_000L
     private const val REARM_REQUEST = 300

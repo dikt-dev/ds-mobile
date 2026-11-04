@@ -30,15 +30,27 @@ class ApiClient(
     private val biliCookie: String = "",
     cacheDir: File? = null,
 ) {
+    companion object {
+        private val sharedClient: OkHttpClient = OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(120, TimeUnit.SECONDS)
+            .writeTimeout(60, TimeUnit.SECONDS)
+            .build()
+    }
+
     /** 构造参数不是 val，方法体里访问不到，提一个属性出来给视频文件缓存用。 */
     private val cacheRoot: File? = cacheDir
     private val diskCache = cacheDir?.let { MediaDiskCache(it) }
     private val jsonType = "application/json; charset=utf-8".toMediaType()
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(120, TimeUnit.SECONDS)
-        .writeTimeout(60, TimeUnit.SECONDS)
-        .build()
+
+    /**
+     * 全 App 共用一个 OkHttpClient。
+     *
+     * 以前每个 ApiClient 实例都 new 一个：连接池是挂在 client 上的，
+     * 所以 5 秒一次的轮询永远用不上 keep-alive，每次都要完整 TCP + TLS 握手，
+     * 一天两万次。client 本身无状态，token/baseUrl 仍按实例传，共享是安全的。
+     */
+    private val client = sharedClient
 
     suspend fun pair(pairCode: String, deviceName: String, deviceId: String): String =
         withContext(Dispatchers.IO) {
