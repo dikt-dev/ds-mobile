@@ -358,7 +358,7 @@ fun SettingsScreen(
                                 title = "后台常驻",
                                 checked = keepAliveOn,
                                 subtitle = if (keepAliveOn) {
-                                    "锁屏也能收到她的消息；代价是一条常驻通知，每 5 秒拉一次消息"
+                                    "锁屏也能收到她的消息；代价是一条常驻通知，每分钟同步一次，连续 3 次没回就报离线"
                                 } else {
                                     "只在打开 App 时收消息，最省电（默认）"
                                 },

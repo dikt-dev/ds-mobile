@@ -215,6 +215,7 @@ class KeepAliveService : Service() {
                 lastStatus = if (failures >= 3) "离线（心跳 $failures 次没回）" else "重连中…"
                 Log.w(TAG, "heartbeat failed ($failures): ${e.message}")
             }
+            if (failures == 0) Log.i(TAG, "tick: heartbeat ok")
             updateNotification(lastStatus)
 
             // 心跳没通就别再打同步请求，省一次必然失败的往返
