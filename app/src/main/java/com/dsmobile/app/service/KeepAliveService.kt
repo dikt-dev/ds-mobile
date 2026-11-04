@@ -34,9 +34,13 @@ import kotlinx.coroutines.launch
 /**
  * 后台常驻服务（可选，默认关）：锁屏也能收到她的消息。
  *
- * 不轮询：服务启动时补拉一次、报一次心跳，然后完全安静。
- * 之后的每一次「到点拉取」都由 AlarmManager 闹钟触发（ProactiveScheduler）：
- * 主动消息按档位、她被闸门压住按 until_ms。没有闹钟就不碰 worker。
+ * 一分钟一轮：心跳 + 增量同步各一次。
+ *
+ * 连续 3 次心跳没回来就在常驻通知上写「离线」——服务被系统冻住时，
+ * 通知栏那行字是唯一能看出「其实早就断了」的地方。
+ *
+ * 关掉常驻后仍然能收消息：「到点拉取」闹钟（ProactiveScheduler）照样兜底，
+ * 主动消息按档位、她被闸门压住按 until_ms。
  */
 class KeepAliveService : Service() {
 
@@ -131,14 +135,9 @@ class KeepAliveService : Service() {
         startForegroundCompat(buildNotification("正在启动…"))
         running = true
         lastStatus = "正在启动…"
-        // 启动时补一次（可能是关机/杀进程期间错过的），之后不再主动查询
         eventJob = scope.launch {
             delay(1_500)
-            pullOnce()
-        }
-        heartbeatJob = scope.launch {
-            delay(2_500)
-            sendHeartbeatOnce()
+            pollLoop()
         }
         Log.i(TAG, "service created")
     }
@@ -191,18 +190,42 @@ class KeepAliveService : Service() {
      * 会从「已连接」变成「心跳失败 N 次」，否则它永远停在最后一次成功的状态，
      * 看上去一切正常，实际早就收不到消息了。
      */
-    /** 只报一次：剩下的心跳由闹钟醒来时顺手发（ProactiveCheckReceiver）。 */
-    private suspend fun sendHeartbeatOnce() {
-        val token = settings.token ?: return
-        try {
-            ApiClient(settings.baseUrl, token).heartbeat()
-            Log.d(TAG, "heartbeat ok")
-        } catch (e: Exception) {
-            Log.w(TAG, "heartbeat failed: ${e.message}")
+    /**
+     * 一分钟一轮：先心跳，再同步增量。
+     *
+     * 心跳连不上 = 网络断了/Worker 挂了，这时候同步也会失败，先报离线再说。
+     * 三次没回就写死「离线」，不再反复显示「重连中」——那个词看不出到底断了多久。
+     */
+    private suspend fun pollLoop() {
+        var failures = 0
+        while (scope.isActive) {
+            val token = settings.token
+            if (token.isNullOrBlank()) {
+                delay(60_000)
+                continue
+            }
+            try {
+                ApiClient(settings.baseUrl, token).heartbeat()
+                failures = 0
+                lastStatus = "已连接"
+                lastTime = System.currentTimeMillis()
+            } catch (e: Exception) {
+                failures += 1
+                lastTime = System.currentTimeMillis()
+                lastStatus = if (failures >= 3) "离线（心跳 $failures 次没回）" else "重连中…"
+                Log.w(TAG, "heartbeat failed ($failures): ${e.message}")
+            }
+            updateNotification(lastStatus)
+
+            // 心跳没通就别再打同步请求，省一次必然失败的往返
+            if (failures < 3) {
+                runCatching { pullOnce() }
+            }
+            delay(60_000)
         }
     }
 
-    /** 补拉一次增量：只在服务启动时调用，不做循环。 */
+    /** 拉一次增量（只走一页到底，不循环等待）。 */
     private suspend fun pullOnce() {
         // 首次启动先取最新 id 作为基线，避免把历史消息全部弹一遍。
         // 最多试 3 次：不做「失败就一直重试」，那又是另一种轮询。
