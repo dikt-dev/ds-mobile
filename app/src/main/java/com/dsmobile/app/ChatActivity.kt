@@ -677,15 +677,29 @@ private fun ChatScreen(
                     }
                     "video" -> {
                         val key = api.uploadMedia(context, attachment.uri)
-                        val caption = if (text.isBlank()) "[视频:$key]" else "$text\n[视频:$key]"
+                        // 抽不出画面时至少还能发文字 + 链接
+                        val plainCaption = if (text.isBlank()) "[视频:$key]" else "$text\n[视频:$key]"
                         // 排版跟 B 站抽帧一致：固定 3 列，横屏 3×3、竖屏 3×2，时长越长越多张。
                         // 只发宫格不发单帧——13 张图（12 帧 + 1 宫格）换来的细节，
                         // 宫格放大后一样读得到，但 token 差一个量级。
                         // 抽不出来（编码怪、时长读不到）就退回纯文字，至少不挡住消息。
+                        // 抽帧和抽音轨并行：一个给人看，一个给耳朵听。
+                        // 音轨中间的失败都不影响发消息，最多卡里少一段台词。
                         val planned = runCatching { VideoFrames.extractPlanned(context, attachment.uri) }
                             .getOrNull()
+                        val (asrLines, asrFailed) = runCatching {
+                            withContext(Dispatchers.IO) {
+                                val audio = VideoAudio.extract(context, attachment.uri)
+                                    ?: return@withContext Pair(emptyList<com.dsmobile.app.AsrLine>(), false)
+                                try {
+                                    api.videoAsr(audio)
+                                } finally {
+                                    audio.delete()
+                                }
+                            }
+                        }.getOrDefault(Pair(emptyList<com.dsmobile.app.AsrLine>(), true))
                         if (planned == null || planned.frames.isEmpty()) {
-                            api.chat(caption, clientId)
+                            api.chat(plainCaption, clientId)
                         } else {
                             val plan = planned.plan
                             val sheets = runCatching {
@@ -699,6 +713,19 @@ private fun ChatScreen(
                                 }
                             }.getOrDefault(emptyList())
                             planned.frames.forEach { it.recycle() }
+                            // 观察卡：时长、横竖、台词、怎么读宫格——和 B 站那张同构
+                            val card = VideoCard.build(
+                                durationMs = planned.durationMs,
+                                aspect = planned.aspect,
+                                cols = plan.cols,
+                                rows = plan.rows,
+                                sheets = plan.sheets,
+                                asr = asrLines,
+                                asrFailed = asrFailed,
+                            )
+                            val caption = listOf(text, "[视频:$key]", card)
+                                .filter { it.isNotBlank() }
+                                .joinToString("\n\n")
                             if (sheets.isEmpty()) {
                                 api.chat(caption, clientId)
                             } else {

@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.util.Log
 import android.provider.OpenableColumns
+import com.dsmobile.app.AsrLine
 import com.dsmobile.app.data.MessageEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -12,6 +13,7 @@ import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody
+import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okio.BufferedSink
 import okio.source
@@ -883,6 +885,34 @@ class ApiClient(
         }.getOrNull()
         result?.let { saveWebPreview(url, it) }
         result
+    }
+
+    /**
+     * 视频台词识别：只传抽出来的音轨，服务端转成带时间点的台词。
+     *
+     * 失败不抛错——视频该发还得发，只是卡里少一段台词。
+     */
+    suspend fun videoAsr(file: File): Pair<List<AsrLine>, Boolean> = withContext(Dispatchers.IO) {
+        runCatching {
+            val body = file.asRequestBody("audio/mp4".toMediaType())
+            val req = Request.Builder()
+                .url(baseUrl.trimEnd('/') + "/api/app/video-asr")
+                .header("authorization", "Bearer " + (token ?: ""))
+                .post(body)
+                .build()
+            sharedClient.newCall(req).execute().use { resp ->
+                val text = resp.body?.string().orEmpty()
+                if (!resp.isSuccessful) return@use emptyList<AsrLine>() to true
+                val root = JSONObject(text)
+                val arr = root.optJSONArray("lines") ?: JSONArray()
+                val lines = (0 until arr.length()).mapNotNull { i ->
+                    val o = arr.optJSONObject(i) ?: return@mapNotNull null
+                    val t = o.optString("text").trim()
+                    if (t.isEmpty()) null else AsrLine(o.optDouble("t", 0.0), t)
+                }
+                lines to false
+            }
+        }.getOrDefault(Pair(emptyList<AsrLine>(), true))
     }
 
     suspend fun uploadMedia(context: Context, uri: Uri): String = withContext(Dispatchers.IO) {

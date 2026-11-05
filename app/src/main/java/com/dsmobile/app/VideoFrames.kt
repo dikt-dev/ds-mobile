@@ -28,8 +28,13 @@ object VideoFrames {
         val frames: Int get() = perSheet * sheets
     }
 
-    /** 抽好的帧和它们的排版。 */
-    data class Planned(val plan: FrameGrid, val frames: List<Bitmap>)
+    /** 抽好的帧和它们的排版（时长/比例留给观察卡用）。 */
+    data class Planned(
+        val plan: FrameGrid,
+        val frames: List<Bitmap>,
+        val durationMs: Long,
+        val aspect: Float,
+    )
 
     /**
      * 时长 + 宽高比 → 排版。纯函数，不碰 Android API，方便单测。
@@ -88,7 +93,7 @@ object VideoFrames {
             val aspect = if (w > 0 && h > 0) w.toFloat() / h.toFloat() else 16f / 9f
             val plan = planOf(durationMs, aspect)
             val frames = grab(retriever, durationMs, plan.frames, maxWidth)
-            if (frames.isEmpty()) null else Planned(plan, frames)
+            if (frames.isEmpty()) null else Planned(plan, frames, durationMs, aspect)
         } catch (e: Exception) {
             android.util.Log.w("VideoFrames", "按排版抽帧失败: ${e.message}")
             null
