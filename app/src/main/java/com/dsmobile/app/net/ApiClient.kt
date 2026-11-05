@@ -936,6 +936,39 @@ class ApiClient(
         }.getOrNull()
     }
 
+    /**
+     * B 站视频理解：把 playUrl 直链交给服务端，让千问 omni 看完整段画面。
+     *
+     * 服务端不碰 B 站接口（机房 IP 会被 412），直链由手机上现取现传。
+     * 失败返回 null，卡片保持原来的大纲 + 字幕 + 雪碧图。
+     */
+    suspend fun biliVision(
+        direct: String,
+        title: String,
+        duration: Int,
+        cacheKey: String,
+    ): String? = withContext(Dispatchers.IO) {
+        if (direct.isBlank()) return@withContext null
+        runCatching {
+            val payload = JSONObject()
+                .put("direct", direct)
+                .put("title", title)
+                .put("duration", duration)
+                .put("cacheKey", cacheKey)
+                .toString()
+            val req = Request.Builder()
+                .url(baseUrl.trimEnd('/') + "/api/app/bili-vision")
+                .header("authorization", "Bearer " + (token ?: ""))
+                .post(payload.toRequestBody("application/json".toMediaType()))
+                .build()
+            sharedClient.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return@use null
+                val root = JSONObject(resp.body?.string().orEmpty())
+                if (!root.optBoolean("ok")) null else root.optString("text").takeIf { it.isNotBlank() }
+            }
+        }.getOrNull()
+    }
+
     suspend fun uploadMedia(context: Context, uri: Uri): String = withContext(Dispatchers.IO) {
         val resolver = context.contentResolver
         val mime = resolver.getType(uri) ?: "application/octet-stream"

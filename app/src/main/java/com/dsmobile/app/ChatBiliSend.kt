@@ -19,6 +19,8 @@ data class BiliSendMedia(
     val detailFrames: List<Bitmap>,
     val durationSec: Double,
     val playUrl: String,
+    /** 千问 omni 写的画面过程；拿不到就是空串，卡片退回只看宫格 */
+    val vision: String,
 )
 
 suspend fun prepareBiliMedia(
@@ -45,6 +47,19 @@ val biliDuration = if (bili != null) {
 val longVideo = bili != null && biliDuration >= 150.0 && usingPlayUrl.isNotBlank()
 // 规划轮只吃文字，和抽宫格并行跑：它的耗时被宫格的 4 秒吃掉，不再额外加延迟。
 val paired = coroutineScope {
+    // 让模型看整段视频，和抽宫格并行跑：两边都要下载，但一个是给模型、一个是给人
+    val visionDeferred = if (usingPlayUrl.isNotBlank()) async {
+        runCatching {
+            api.biliVision(
+                direct = usingPlayUrl,
+                title = bili?.title.orEmpty(),
+                duration = biliDuration.toInt(),
+                cacheKey = (bili?.bvid.orEmpty() + "-" + (bili?.cid ?: 0)),
+            )
+        }.getOrNull().orEmpty()
+    } else {
+        null
+    }
     val planDeferred: kotlinx.coroutines.Deferred<List<Double>>? = if (longVideo) async {
         runCatching {
             parseLookTimes(api.chat(textPlanPrompt(bili!!, biliDuration), null, record = false))
@@ -70,10 +85,11 @@ val paired = coroutineScope {
     } else {
         emptyList()
     }
-    grids to (planDeferred?.await() ?: emptyList())
+    Triple(grids, planDeferred?.await() ?: emptyList(), visionDeferred?.await().orEmpty())
 }
 val frames = paired.first
 val plannedTimes = paired.second
+val visionText = paired.third
 // 长视频：从本地缓存的 MP4 里补原始分辨率帧。
 // 规划轮 record=false，不写 D1、不进记忆，用户在界面上也看不到。
 val detailFrames = if (frames.isNotEmpty() && bili != null && usingPlayUrl.isNotBlank()) {
@@ -93,5 +109,5 @@ val detailFrames = if (frames.isNotEmpty() && bili != null && usingPlayUrl.isNot
     emptyList()
 }
 android.util.Log.i("BiliAi", "frames=" + frames.size + " detail=" + detailFrames.size)
-    return BiliSendMedia(frames, detailFrames, biliDuration, usingPlayUrl)
+    return BiliSendMedia(frames, detailFrames, biliDuration, usingPlayUrl, visionText)
 }

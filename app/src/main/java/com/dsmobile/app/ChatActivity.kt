@@ -531,7 +531,15 @@ private fun ChatScreen(
             val allFrames = frames + detailFrames
             // 静帧说明不再拼进正文：那段话以前会落库，然后原样出现在气泡里。
             // 现在只发画面，提示词由服务端补。
-            val replyText = outgoing
+            // 模型看完的画面过程塞进 BILI_META 末尾：她拿到的是「按时间的画面」，不是九宫格
+        val replyText = if (media.vision.isNotBlank() && outgoing.contains("[/BILI_META]")) {
+            outgoing.replace(
+                "[/BILI_META]",
+                "\n## 画面过程（按时间，你看这条视频时看到的）\n" + media.vision.trim() + "\n[/BILI_META]",
+            )
+        } else {
+            outgoing
+        }
             val reply = coroutineScope {
                 // 等她回话的这几秒里每 0.7 秒对一次账：服务端一落库，pending 就被换成正身，
                 // 气泡从"发送中"变"已发送"。否则界面毫无变化，看着像没发出去。
