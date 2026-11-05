@@ -398,6 +398,9 @@ private fun ChatScreen(
     val pendingCards = remember { mutableStateMapOf<Long, PendingCard>() }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
+    // 程序自己滚的时候不要再被「用户滚动了」的观察器当成用户操作，
+    // 否则会自动滚 → 判定 stickToBottom=false → 停 → 又贴底，来回抖。
+    var autoScrolling by remember { mutableStateOf(false) }
     val syncer = remember(dao, api, context) {
         ChatSync(dao, api, failedPendingIds, com.dsmobile.app.data.SettingsStore(context))
     }
@@ -1107,6 +1110,7 @@ private fun ChatScreen(
                 listState.firstVisibleItemScrollOffset,
             )
         }.collect { (scrolling, index, offset) ->
+            if (autoScrolling) return@collect
             // reverseLayout 下 index=0 + offset=0 才是真正贴底。
             // 只在用户真正滚动时把跟随关掉；新消息插入造成的 index 变化不能误判。
             val atBottom = index == 0 && offset == 0
@@ -1122,10 +1126,13 @@ private fun ChatScreen(
 
     val scrollToLatest: () -> Unit = {
         scope.launch {
-            if (!stickToBottom) return@launch
-            delay(120)
-            if (itemCount > 0 && !listState.isScrollInProgress && !atBottom()) {
-                listState.animateScrollToItem(0)
+            // 已经贴底就什么都不做：新内容本来就在 index 0，多滚一次就是抖一下。
+            if (!stickToBottom || autoScrolling || atBottom()) return@launch
+            autoScrolling = true
+            try {
+                listState.scrollToItem(0)
+            } finally {
+                autoScrolling = false
             }
         }
     }
@@ -1133,15 +1140,25 @@ private fun ChatScreen(
         if (itemCount <= 0) return@LaunchedEffect
         if (!initialScrollDone) {
             // reverseLayout 的 index 0 就是底部；首次打开直接定位。
-            repeat(4) {
-                listState.scrollToItem(0)
-                withFrameNanos { }
-                delay(40)
+            autoScrolling = true
+            try {
+                repeat(4) {
+                    listState.scrollToItem(0)
+                    withFrameNanos { }
+                    delay(40)
+                }
+            } finally {
+                autoScrolling = false
             }
             initialScrollDone = true
         } else if (stickToBottom && !listState.isScrollInProgress && !atBottom()) {
             // 已经在底部时不再滚动；新 item 已经在 index 0，额外滚动只会造成闪跳。
-            listState.animateScrollToItem(0)
+            autoScrolling = true
+            try {
+                listState.scrollToItem(0)
+            } finally {
+                autoScrolling = false
+            }
         }
     }
 
@@ -1150,7 +1167,12 @@ private fun ChatScreen(
     LaunchedEffect(imeBottom) {
         if (imeBottom > 0 && stickToBottom && !listState.isScrollInProgress) {
             delay(80)
-            listState.scrollToItem(0)
+            autoScrolling = true
+            try {
+                listState.scrollToItem(0)
+            } finally {
+                autoScrolling = false
+            }
         }
     }
 
@@ -1325,7 +1347,12 @@ private fun ChatScreen(
                         .clickable {
                             scope.launch {
                                 stickToBottom = true
-                                listState.animateScrollToItem(0)
+                                autoScrolling = true
+                                try {
+                                    listState.animateScrollToItem(0)
+                                } finally {
+                                    autoScrolling = false
+                                }
                             }
                         },
                     contentAlignment = Alignment.Center,

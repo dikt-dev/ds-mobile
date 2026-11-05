@@ -1172,6 +1172,8 @@ class ApiClient(
                 val memory = line("memory")
                 val today = line("today")
                 val bal = root.optJSONObject("balance")
+                // 千问是另一本账（阿里云），服务端单独给一块；没配就整块为空
+                val qw = root.optJSONObject("qwen")
                 StatusSnapshot(
                     mood = mood.first, moodHint = mood.second,
                     relation = relation.first, relationHint = relation.second,
@@ -1181,6 +1183,10 @@ class ApiClient(
                     balanceHint = bal?.optString("hint").orEmpty(),
                     balanceTotal = bal?.optDouble("total", 0.0) ?: 0.0,
                     balanceCurrency = bal?.optString("currency").orEmpty(),
+                    qwenTotal = qw?.optDouble("total", -1.0) ?: -1.0,
+                    qwenSpent = qw?.optDouble("spent30d", 0.0) ?: 0.0,
+                    qwenCalls = qw?.optInt("calls30d", 0) ?: 0,
+                    qwenConfigured = qw?.optBoolean("configured", false) ?: false,
                 )
             }
         }.getOrNull()
@@ -1327,6 +1333,11 @@ data class StatusSnapshot(
     val balanceHint: String = "",
     val balanceTotal: Double = 0.0,
     val balanceCurrency: String = "",
+    /** 千问余额；-1 表示查不到（没配 AccessKey） */
+    val qwenTotal: Double = -1.0,
+    val qwenSpent: Double = 0.0,
+    val qwenCalls: Int = 0,
+    val qwenConfigured: Boolean = false,
 )
 
 /** 日记条目：锁着也给日期/天气/身体，正文不在列表里。 */

@@ -206,41 +206,90 @@ fun StatusScreen(api: ApiClient, onClose: () -> Unit) {
 
                 if (s.balance.isNotEmpty()) {
                     DsSectionLabel("账户")
-                    Row(
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(20.dp))
                             .background(Ds.colors.ink)
                             .padding(DsSpace.md),
-                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Column(Modifier.weight(1f)) {
+                        // DeepSeek：主账户，数字最大
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    "DeepSeek",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = Ds.colors.canvas.copy(alpha = 0.7f),
+                                )
+                                Row(verticalAlignment = Alignment.Bottom) {
+                                    Text(
+                                        if (s.balanceCurrency == "USD") "$" else "¥",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = Ds.colors.canvas,
+                                        modifier = Modifier.padding(bottom = 3.dp),
+                                    )
+                                    Text(
+                                        "%.2f".format(s.balanceTotal),
+                                        style = MaterialTheme.typography.headlineMedium.copy(
+                                            fontWeight = FontWeight.SemiBold,
+                                        ),
+                                        color = Ds.colors.canvas,
+                                    )
+                                }
+                            }
                             Text(
-                                "余额",
-                                style = MaterialTheme.typography.labelMedium,
+                                s.balance,
+                                style = MaterialTheme.typography.bodySmall,
                                 color = Ds.colors.canvas.copy(alpha = 0.7f),
                             )
-                            Row(verticalAlignment = Alignment.Bottom) {
-                                Text(
-                                    if (s.balanceCurrency == "USD") "$" else "¥",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = Ds.colors.canvas,
-                                    modifier = Modifier.padding(bottom = 3.dp),
-                                )
-                                Text(
-                                    "%.2f".format(s.balanceTotal),
-                                    style = MaterialTheme.typography.headlineMedium.copy(
-                                        fontWeight = FontWeight.SemiBold,
-                                    ),
-                                    color = Ds.colors.canvas,
-                                )
+                        }
+                        // 千问：另一本账，摆在同一张卡里但分成两行，
+                        // 数字用同一档字号，别缩成脚注——那是上一次被吐槽的地方。
+                        if (s.qwenConfigured || s.qwenSpent > 0) {
+                            Box(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = DsSpace.sm)
+                                    .height(1.dp)
+                                    .background(Ds.colors.canvas.copy(alpha = 0.15f)),
+                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        "千问 · 阿里云",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = Ds.colors.canvas.copy(alpha = 0.7f),
+                                    )
+                                    Row(verticalAlignment = Alignment.Bottom) {
+                                        Text(
+                                            "¥",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            color = Ds.colors.canvas,
+                                            modifier = Modifier.padding(bottom = 3.dp),
+                                        )
+                                        Text(
+                                            if (s.qwenTotal >= 0) "%.2f".format(s.qwenTotal) else "--",
+                                            style = MaterialTheme.typography.headlineMedium.copy(
+                                                fontWeight = FontWeight.SemiBold,
+                                            ),
+                                            color = Ds.colors.canvas,
+                                        )
+                                    }
+                                }
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text(
+                                        "本月 ¥%.2f".format(s.qwenSpent),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = Ds.colors.canvas.copy(alpha = 0.7f),
+                                    )
+                                    Text(
+                                        if (s.qwenTotal >= 0) "${s.qwenCalls} 次调用" else "未配置密钥",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Ds.colors.canvas.copy(alpha = 0.5f),
+                                    )
+                                }
                             }
                         }
-                        Text(
-                            s.balance,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Ds.colors.canvas.copy(alpha = 0.7f),
-                        )
                     }
                 }
 
