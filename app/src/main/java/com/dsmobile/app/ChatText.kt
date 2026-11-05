@@ -266,6 +266,8 @@ internal fun stripBiliMeta(text: String): String =
     stripInternalNotes(
         stripLeadTimeLabels(text)
             .replace(Regex("(?s)\\[BILI_META\\].*?\\[/BILI_META\\]"), "")
+        // 本地视频的观察卡同理：那是给模型看的资料，不该出现在自己的气泡里
+        .replace(Regex("(?s)\\[VIDEO_META\\].*?\\[/VIDEO_META\\]"), "")
             .replace(Regex("(?s)\\[WEB_META\\].*?\\[/WEB_META\\]"), "")
             .replace("[视频帧]", ""),
     )
