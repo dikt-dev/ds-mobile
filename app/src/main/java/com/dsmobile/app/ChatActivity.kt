@@ -679,6 +679,22 @@ private fun ChatScreen(
                         val key = api.uploadMedia(context, attachment.uri)
                         // 抽不出画面时至少还能发文字 + 链接
                         val plainCaption = if (text.isBlank()) "[视频:$key]" else "$text\n[视频:$key]"
+                        // 首选：让千问 omni 把整段视频看完，换成一份带时间点的笔记。
+                        // 它同时听得到声音，所以不需要再跑 whisper，也不用抽帧。
+                        // 失败（没配 key、超时、限流）就走下面那条老路，消息照发。
+                        val vision = runCatching { api.videoVision(key) }.getOrNull();
+                        if (!vision.isNullOrBlank()) {
+                        val meta = runCatching { VideoFrames.meta(context, attachment.uri) }.getOrNull()
+                        val card = VideoCard.buildFromVision(
+                        durationMs = meta?.first ?: 0L,
+                        aspect = meta?.second ?: 1f,
+                        observation = vision,
+                        )
+                        val caption = listOf(text, "[视频:$key]", card)
+                        .filter { it.isNotBlank() }
+                        .joinToString("\n\n")
+                        api.chat(caption, clientId)
+                        } else {
                         // 排版跟 B 站抽帧一致：固定 3 列，横屏 3×3、竖屏 3×2，时长越长越多张。
                         // 只发宫格不发单帧——13 张图（12 帧 + 1 宫格）换来的细节，
                         // 宫格放大后一样读得到，但 token 差一个量级。
@@ -733,6 +749,7 @@ private fun ChatScreen(
                                 sheets.forEach { it.recycle() }
                                 api.chatWithImages(caption, frames, clientId, transient = true)
                             }
+                        }
                         }
                     }
                     else -> {

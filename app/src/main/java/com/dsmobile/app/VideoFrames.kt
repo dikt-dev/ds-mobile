@@ -78,6 +78,28 @@ object VideoFrames {
      * 按 B 站排版抽帧：先读时长和分辨率定排版，再抽够 plan.frames 张。
      * 读不到时长就返回 null，调用方退回纯文字。
      */
+    /**
+     * 只读时长和宽高比，不抽帧——原生视频理解那条路出卡片用。
+     *
+     * 竖屏视频有些机器导出的是 1920x1080 + rotation=90，这里按旋转修正，否则会被写成横屏。
+     */
+    fun meta(context: Context, uri: Uri): Pair<Long, Float>? {
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(context, uri)
+            val durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+            val w = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: 0
+            val h = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: 0
+            val rot = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toIntOrNull() ?: 0
+            val (vw, vh) = if (rot % 180 == 90) h to w else w to h
+            if (vw <= 0 || vh <= 0) null else durationMs to (vw.toFloat() / vh.toFloat())
+        } catch (e: Exception) {
+            null
+        } finally {
+            runCatching { retriever.release() }
+        }
+    }
+
     fun extractPlanned(context: Context, uri: Uri, maxWidth: Int = 720): Planned? {
         val retriever = MediaMetadataRetriever()
         return try {

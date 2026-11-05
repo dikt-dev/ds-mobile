@@ -915,6 +915,27 @@ class ApiClient(
         }.getOrDefault(Pair(emptyList<AsrLine>(), true))
     }
 
+    /**
+     * 视频理解：服务端拿签名 URL 交给千问 omni，看完返回带时间点的观察笔记。
+     *
+     * 失败返回 null——调用方退回「抽帧 + whisper」那条老路，消息照发。
+     */
+    suspend fun videoVision(key: String): String? = withContext(Dispatchers.IO) {
+        runCatching {
+            val req = Request.Builder()
+                .url(baseUrl.trimEnd('/') + "/api/app/video-vision")
+                .header("authorization", "Bearer " + (token ?: ""))
+                .post(JSONObject().put("key", key).toString().toRequestBody("application/json".toMediaType()))
+                .build()
+            sharedClient.newCall(req).execute().use { resp ->
+                val text = resp.body?.string().orEmpty()
+                if (!resp.isSuccessful) return@use null
+                val root = JSONObject(text)
+                if (!root.optBoolean("ok")) null else root.optString("text").takeIf { it.isNotBlank() }
+            }
+        }.getOrNull()
+    }
+
     suspend fun uploadMedia(context: Context, uri: Uri): String = withContext(Dispatchers.IO) {
         val resolver = context.contentResolver
         val mime = resolver.getType(uri) ?: "application/octet-stream"
