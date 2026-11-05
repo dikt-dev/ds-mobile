@@ -1099,6 +1099,14 @@ fun MessageItem(
         if (isVoice) onPrefetch(voiceText)
     }
 
+    // 空壳回复：服务端删了这条、或者压着还没回，本地只剩一个空气泡。
+    // 这种如果照常渲染，底部就会永远转「···」，列表跟着一跳一跳。
+    if (!isUser && displayText.isEmpty() && voiceText.isEmpty() && mediaItems.isEmpty() &&
+        imageKeys.isEmpty() && biliUrls.isEmpty() && webUrls.isEmpty() && fileMatch == null
+    ) {
+        return
+    }
+
     val align = if (isUser) Alignment.End else Alignment.Start
     Column(Modifier.fillMaxWidth(), horizontalAlignment = align) {
         if (showMeta) {
