@@ -68,6 +68,10 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -839,6 +843,36 @@ private fun bubbleShape(isUser: Boolean, grouped: Boolean): RoundedCornerShape {
     }
 }
 
+/**
+ * 行首/行尾的括号动作（(叹气)、(把面饼扔锅里)）渲染成灰色小字斜体。
+ *
+ * 只认「动作」这一种括号：整条靠前或靠后的、短句、不含换行。
+ * 句中的括号（比如「(28)」这种数字）不动，免得把正常内容也变灰。
+ */
+private val PAREN_HEAD = Regex("^\\s*[（(][^（）()\\n]{1,40}[）)]")
+private val PAREN_TAIL = Regex("[（(][^（）()\\n]{1,40}[）)]\\s*$")
+
+@Composable
+private fun bubbleText(text: String, isUser: Boolean): AnnotatedString {
+    if (isUser) return AnnotatedString(text)
+    val dim = Ds.colors.aiBubbleText.copy(alpha = 0.58f)
+    val small = MaterialTheme.typography.bodyLarge.fontSize * 0.86f
+    return remember(text, small) {
+        buildAnnotatedString {
+            append(text)
+            listOf(PAREN_HEAD, PAREN_TAIL).forEach { re ->
+                re.find(text)?.let {
+                    addStyle(
+                        SpanStyle(color = dim, fontStyle = FontStyle.Italic, fontSize = small),
+                        it.range.first,
+                        it.range.last + 1,
+                    )
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun TextBubble(
     isUser: Boolean,
@@ -862,7 +896,7 @@ private fun TextBubble(
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
-                replaceFaceMarkers(text),
+                bubbleText(replaceFaceMarkers(text), isUser),
                 style = MaterialTheme.typography.bodyLarge,
                 color = if (isUser) Ds.colors.userBubbleText else Ds.colors.aiBubbleText,
                 maxLines = if (expanded) Int.MAX_VALUE else maxLines,
