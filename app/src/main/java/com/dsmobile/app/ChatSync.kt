@@ -9,12 +9,15 @@ package com.dsmobile.app
 import android.util.Log
 import com.dsmobile.app.data.MessageEntity
 import com.dsmobile.app.data.MessageDao
+import com.dsmobile.app.data.SettingsStore
+import com.dsmobile.app.service.KeepAliveService
 import com.dsmobile.app.net.ApiClient
 
 class ChatSync(
     private val dao: MessageDao,
     private val api: ApiClient,
     private val failedPendingIds: MutableMap<Long, Boolean>,
+    private val settings: SettingsStore? = null,
 ) {
     private val BILI_URL_REGEX =
         Regex("https?://(?:www\\.)?bilibili\\.com/video/(?:BV[0-9A-Za-z]{10}|av\\d+)")
@@ -31,6 +34,13 @@ suspend fun syncEvents() {
         after = next
     }
     if (changed.isNotEmpty()) dao.applyServerMessages(changed)
+    // 记下「界面已经看到哪」：后台通知据此跳过刚看过的消息
+    if (KeepAliveService.appVisible) {
+        val top = dao.maxId()
+        KeepAliveService.seenUpTo = maxOf(KeepAliveService.seenUpTo, top)
+        // 落盘一份：进程被杀以后内存里的 seenUpTo 会丢，水位得留在 SharedPreferences 里
+        settings?.let { if (top > it.lastEventId) it.lastEventId = top }
+    }
     applyTombstones()
     backfillBiliMeta(changed)
 }

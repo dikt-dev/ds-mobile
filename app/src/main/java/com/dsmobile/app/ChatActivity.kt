@@ -398,7 +398,9 @@ private fun ChatScreen(
     val pendingCards = remember { mutableStateMapOf<Long, PendingCard>() }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
-    val syncer = remember(dao, api) { ChatSync(dao, api, failedPendingIds) }
+    val syncer = remember(dao, api, context) {
+        ChatSync(dao, api, failedPendingIds, com.dsmobile.app.data.SettingsStore(context))
+    }
 
 
     var cameraFile by remember { mutableStateOf<File?>(null) }

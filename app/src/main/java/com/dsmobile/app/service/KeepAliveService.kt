@@ -75,6 +75,16 @@ class KeepAliveService : Service() {
         @Volatile
         var appVisible: Boolean = false
 
+    /**
+     * 界面已经同步到的最新消息 id。
+     *
+     * 前台聊天页每拉一次就把它推到最新；后台通知只看「比它更新」的消息。
+     * 没有它的话：他在前台看完消息、两秒后把 App 划走，服务下一轮（最多 60 秒后）
+     * 才走到那条，于是把刚看过的内容再弹一遍。
+     */
+    @Volatile
+    var seenUpTo: Long = 0L
+
         @Volatile
         var running: Boolean = false
             private set
@@ -250,14 +260,16 @@ class KeepAliveService : Service() {
             // 服务端重置过库时，本地高水位会一直超前，轮询永远拿不到新消息
             runCatching { healEventWatermark(ApiClient(settings.baseUrl, token), settings) }
             try {
-                var after = settings.lastEventId
+                // 界面已经看到的位置也算基线：前台看过的别再弹
+                var after = maxOf(settings.lastEventId, seenUpTo)
                 var last = after
                 while (true) {
                     val page = ApiClient(settings.baseUrl, token).events(after, 100)
                     for (message in page.messages) {
                         if (message.id > last) {
                             if (message.role == "assistant" && !appVisible &&
-                                message.id !in notifiedMessageIds
+                                message.id !in notifiedMessageIds &&
+                                message.id > seenUpTo
                             ) {
                                 notifyMessage(message)
                                 notifiedMessageIds.add(message.id)
