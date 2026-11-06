@@ -42,7 +42,8 @@ suspend fun syncEvents() {
         settings?.let { if (top > it.lastEventId) it.lastEventId = top }
     }
     applyTombstones()
-    backfillBiliMeta(changed)
+    // pending 还在等对账时先别回填 B 站资料：那是网络请求，会把「发送中 → 已发送」拖慢
+    if (dao.pending().isEmpty()) backfillBiliMeta(changed)
 }
 
 /** 服务端删掉的消息，本地也删——不然清掉的测试记录会永远存在手机上。 */

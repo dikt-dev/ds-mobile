@@ -143,7 +143,6 @@ import com.dsmobile.app.ui.PendingCard
 import com.dsmobile.app.ui.PendingMessageRow
 import com.dsmobile.app.ui.Receipt
 import com.dsmobile.app.ui.StatusStrip
-import com.dsmobile.app.ui.StreamingMessage
 import com.dsmobile.app.ui.components.DsField
 import com.dsmobile.app.ui.theme.Ds
 import com.dsmobile.app.ui.theme.DsTheme
@@ -388,7 +387,6 @@ private fun ChatScreen(
     var locationAccuracy by remember { mutableStateOf(0f) }
     var locationReason by remember { mutableStateOf("用户主动更新位置") }
     var status by remember { mutableStateOf("") }
-    var streamingText by remember { mutableStateOf("") }
     var initialScrollDone by remember { mutableStateOf(false) }
     var historyReady by remember { mutableStateOf(false) }
     var stickToBottom by remember { mutableStateOf(true) }
@@ -457,7 +455,6 @@ private fun ChatScreen(
         busy = true
         // 先把自己的消息落到本地列表，B 站/网页解析在后台继续；用户不应等解析完才看见消息。
         status = "等待回复…"
-        streamingText = ""
         val pendingMessage = PendingMessageEntity(
             content = text,
             clientMessageId = UUID.randomUUID().toString(),
@@ -547,8 +544,10 @@ private fun ChatScreen(
                 // 等她回话的这几秒里每 0.7 秒对一次账：服务端一落库，pending 就被换成正身，
                 // 气泡从"发送中"变"已发送"。否则界面毫无变化，看着像没发出去。
                 val watcher = launch {
+                    // 刚发出去的 10 秒里盯紧一点：服务端一落库就把 pending 换成正身（"已发送"）
+                    val startedAt = System.currentTimeMillis()
                     while (isActive) {
-                        delay(700)
+                        delay(if (System.currentTimeMillis() - startedAt < 10_000) 300 else 700)
                         runCatching { syncer.syncEvents() }
                     }
                 }
@@ -580,8 +579,12 @@ private fun ChatScreen(
             dao.deletePending(pendingMessage.copy(id = pendingId))
             failedPendingIds.remove(pendingId)
             pendingCards.remove(pendingId)
-            streamingText = ""
             status = ""
+        } catch (e: java.io.InterruptedIOException) {
+            frames.forEach { it.recycle() }
+            // 超时不等于失败：服务端可能还在写、稍后会落库。标成「发送失败」只会让人反复重发。
+            status = "她还没说完，过一会儿会自动补上"
+            runCatching { syncer.reconcilePending() }
         } catch (e: HeldException) {
             // 被闸门压住：别挂成「发送失败」，那会让人反复重发同一条。
             // 消息早已落库，等下一轮对账把 pending 换成正身即可。
@@ -593,7 +596,6 @@ private fun ChatScreen(
             dao.deletePending(pendingMessage.copy(id = pendingId))
             pendingCards.remove(pendingId)
             failedPendingIds.remove(pendingId)
-            streamingText = ""
             status = ""
             android.widget.Toast.makeText(context, e.message, android.widget.Toast.LENGTH_LONG).show()
         } catch (e: Exception) {
@@ -602,7 +604,6 @@ private fun ChatScreen(
             // 502 可能发生在服务端已落库之后；对账一次，避免成功消息还卡在 pending。
             runCatching { syncer.reconcilePending() }
             status = "发送失败：${e.message}，可在下方重试"
-            streamingText = ""
         } finally {
             busy = false
         }
@@ -1077,7 +1078,7 @@ private fun ChatScreen(
         }
     }
 
-    val itemCount = messages.size + pending.size + if (streamingText.isNotEmpty()) 1 else 0
+    val itemCount = messages.size + pending.size
     val canSend = !busy && (input.isNotBlank() || draft != null)
     val focusManager = LocalFocusManager.current
     var inputFocused by remember { mutableStateOf(false) }
@@ -1215,7 +1216,7 @@ private fun ChatScreen(
         Box(Modifier.weight(1f).fillMaxWidth()) {
             if (!historyReady) {
                 ChatLoading()
-            } else if (messages.isEmpty() && pending.isEmpty() && streamingText.isEmpty()) {
+            } else if (messages.isEmpty() && pending.isEmpty()) {
                 EmptyChat(onQuickStart = { text -> scope.launch { sendText(text) } })
             }
             LazyColumn(
@@ -1228,11 +1229,6 @@ private fun ChatScreen(
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 // reverseLayout：index 0 在底部，所以“正在输入/未发送”放在最前面。
-                if (streamingText.isNotEmpty()) {
-                    item(key = "streaming") {
-                        StreamingMessage(streamingText, onReveal = scrollToLatest)
-                    }
-                }
                 items(pending.asReversed(), key = { "pending-${it.id}" }) { message ->
                     PendingMessageRow(
                         message = message,

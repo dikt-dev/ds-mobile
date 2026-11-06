@@ -1351,53 +1351,6 @@ private fun TypingDots() {
     }
 }
 
-@Composable
-fun StreamingMessage(text: String, onReveal: () -> Unit) {
-    val segments = parseChatSegments(text)
-    var visibleCount by remember { mutableStateOf(1) }
-    LaunchedEffect(segments.size) {
-        while (visibleCount < segments.size) {
-            delay(1000)
-            visibleCount++
-            onReveal()
-        }
-    }
-    Column(Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.padding(start = 2.dp, bottom = 5.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("大肥鱼", style = MaterialTheme.typography.labelMedium, color = Ds.colors.inkSecondary)
-            Spacer(Modifier.width(6.dp))
-            TypingDots()
-        }
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
-            ChatAvatar(30.dp)
-            Spacer(Modifier.width(8.dp))
-            Column(
-                modifier = Modifier.widthIn(max = 302.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                segments
-                    .filterIsInstance<ChatSegment.Text>()
-                    .take(visibleCount.coerceAtMost(segments.size))
-                    .forEach { segment ->
-                        if (segment.text.isNotBlank()) {
-                            TextBubble(isUser = false, shape = bubbleShape(false, false), text = segment.text)
-                        }
-                    }
-                if (segments.any { it is ChatSegment.Voice }) {
-                    Text(
-                        "语音生成中…",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Ds.colors.inkTertiary,
-                    )
-                }
-            }
-        }
-    }
-}
-
 /**
  * 还没发出去的链接卡片。
  *

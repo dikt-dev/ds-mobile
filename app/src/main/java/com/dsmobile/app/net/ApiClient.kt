@@ -25,6 +25,22 @@ import java.util.concurrent.TimeUnit
 /** 服务端允许“这轮不回复”时返回的哨兵，不是要显示的文本。 */
 const val NO_REPLY = "[END]"
 
+/** 她说到一半被 max_tokens 截断时的收尾，避免把半句话当成完整回复。 */
+private const val TRUNCATED_HINT = "……（说到一半，断了）"
+
+/** 从 OpenAI 兼容响应里取正文；finish_reason=length 时补一句截断提示。 */
+private fun readCompletion(obj: JSONObject): String {
+    val choice = obj.optJSONArray("choices")?.optJSONObject(0)
+    val content = choice
+        ?.optJSONObject("message")
+        ?.optString("content")
+        ?.takeIf { it.isNotBlank() }
+        ?: throw ApiException("回复为空")
+    val cleaned = content.replace(NO_REPLY, "").trim()
+    if (cleaned.isBlank()) return NO_REPLY
+    return if (choice?.optString("finish_reason") == "length") cleaned + TRUNCATED_HINT else cleaned
+}
+
 class ApiClient(
     private val baseUrl: String,
     private val token: String? = null,
@@ -35,7 +51,9 @@ class ApiClient(
     companion object {
         private val sharedClient: OkHttpClient = OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(120, TimeUnit.SECONDS)
+            // 非流式请求在生成期间服务端一个字节都不发，读超时 = 总生成时间上限。
+            // 服务端上限 180s，这里留 20s 余量，避免「手机报失败、服务端还在写」。
+            .readTimeout(200, TimeUnit.SECONDS)
             .writeTimeout(60, TimeUnit.SECONDS)
             .build()
     }
@@ -286,67 +304,10 @@ class ApiClient(
             if (obj.optBoolean("no_reply", false)) {
                 return@withContext NO_REPLY
             }
-            val content = obj.optJSONArray("choices")
-                ?.optJSONObject(0)
-                ?.optJSONObject("message")
-                ?.optString("content")
-                ?.takeIf { it.isNotBlank() }
-                ?: throw ApiException("回复为空")
-            val cleaned = content.replace(NO_REPLY, "").trim()
-            if (cleaned.isBlank()) NO_REPLY else cleaned
+            readCompletion(obj)
         }
     }
 
-    /** SSE 流式回复；每段 delta 回调一次，返回完整文本。 */
-    suspend fun chatStream(
-        text: String,
-        clientMessageId: String? = null,
-        onDelta: suspend (String) -> Unit,
-    ): String =
-        withContext(Dispatchers.IO) {
-            val messages = JSONArray().put(JSONObject().put("role", "user").put("content", text))
-            val body = JSONObject()
-                .put("messages", messages)
-                .put("stream", true)
-                .put("inject_history", true)
-            if (!clientMessageId.isNullOrBlank()) body.put("client_message_id", clientMessageId)
-            val bodyText = body.toString()
-            val request = Request.Builder()
-                .url("$baseUrl/v1/chat/completions")
-                .header("Authorization", "Bearer ${requireToken()}")
-                .header("X-Client-Channel", "mobile")
-            .header("X-Client-Voice", "1")
-                .post(bodyText.toRequestBody(jsonType))
-                .build()
-            execute(request).use { response ->
-                if (!response.isSuccessful) {
-                    throw ApiException(errorText(response.code, response.body?.string().orEmpty()))
-                }
-                val source = response.body?.source() ?: throw ApiException("回复为空")
-                val builder = StringBuilder()
-                while (!source.exhausted()) {
-                    val line = source.readUtf8Line() ?: break
-                    if (!line.startsWith("data:")) continue
-                    val data = line.removePrefix("data:").trim()
-                    if (data == "[DONE]") break
-                    if (data.isEmpty()) continue
-                    val delta = runCatching {
-                        JSONObject(data)
-                            .optJSONArray("choices")
-                            ?.optJSONObject(0)
-                            ?.optJSONObject("delta")
-                            ?.optString("content")
-                            .orEmpty()
-                    }.getOrDefault("")
-                    if (delta.isNotEmpty()) {
-                        builder.append(delta)
-                        onDelta(delta)
-                    }
-                }
-                val result = builder.toString().replace(NO_REPLY, "").trim()
-                if (result.isBlank()) NO_REPLY else result
-            }
-        }
 
     suspend fun image(key: String): ByteArray = withContext(Dispatchers.IO) {
         val cacheKey = "image:$key"
@@ -463,14 +424,7 @@ class ApiClient(
             if (obj.optBoolean("no_reply", false)) {
                 return@withContext NO_REPLY
             }
-            val content = obj.optJSONArray("choices")
-                ?.optJSONObject(0)
-                ?.optJSONObject("message")
-                ?.optString("content")
-                ?.takeIf { it.isNotBlank() }
-                ?: throw ApiException("回复为空")
-            val cleaned = content.replace(NO_REPLY, "").trim()
-            if (cleaned.isBlank()) NO_REPLY else cleaned
+            readCompletion(obj)
         }
     }
 
