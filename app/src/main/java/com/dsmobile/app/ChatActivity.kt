@@ -1342,6 +1342,23 @@ private fun ChatScreen(
                         animate = animateSegments,
                         onSpeak = { TtsManager.speak(context, settings, it) },
                         onPrefetch = { TtsManager.prefetch(context, settings, it) },
+                        // 最新一条是我的、超过 30 秒还没回：这一轮大概率失败了，给个重试入口
+                        onRetryReply = if (message.role == "user" && index == 0 && messageAgeMillis(message.createdAt) > 30_000L) {
+                            {
+                                scope.launch {
+                                    status = "重试…"
+                                    try {
+                                        api.chat(message.content, message.clientMessageId)
+                                        runCatching { syncer.refreshClientMessage(message.clientMessageId.orEmpty()) }
+                                        syncer.syncEvents()
+                                    } catch (e: Exception) {
+                                        android.widget.Toast.makeText(context, "还是没成功：${e.message}", android.widget.Toast.LENGTH_LONG).show()
+                                    } finally {
+                                        status = ""
+                                    }
+                                }
+                            }
+                        } else null,
                         onReveal = scrollToLatest,
                     )
                 }
@@ -1567,3 +1584,9 @@ internal fun orderForDisplay(messages: List<MessageEntity>): List<MessageEntity>
         .sortedWith(compareBy({ it.second }, { it.first.id }))
         .map { it.first }
 }
+
+
+/** 这条消息是多久以前发的（毫秒）。解析不了就当 0，不弹重试。 */
+private fun messageAgeMillis(createdAt: String): Long = runCatching {
+    System.currentTimeMillis() - java.time.OffsetDateTime.parse(createdAt).toInstant().toEpochMilli()
+}.getOrDefault(0L)

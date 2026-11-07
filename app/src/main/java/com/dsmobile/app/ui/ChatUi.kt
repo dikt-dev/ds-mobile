@@ -986,6 +986,8 @@ fun MessageItem(
     onSpeak: (String) -> Unit,
     onPrefetch: (String) -> Unit,
     onReveal: () -> Unit,
+    /** 这条没等到回复时给一个「重试」入口 */
+    onRetryReply: (() -> Unit)? = null,
 ) {
     val isUser = message.role == "user"
     val channel = when (message.channel) {
@@ -1179,6 +1181,10 @@ fun MessageItem(
             }
         }
         if (isUser && receipt != null) ReadMark(failed = false, read = receipt == Receipt.READ)
+        // 她没回：给一个直接重试的入口，不用重打一遍字
+        if (isUser && onRetryReply != null) {
+            DsTextButton("她没回，重试", onRetryReply, color = Ds.colors.accent)
+        }
     }
 }
 
