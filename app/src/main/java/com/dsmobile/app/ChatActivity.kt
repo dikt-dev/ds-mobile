@@ -785,6 +785,8 @@ private fun ChatScreen(
                         api.chat(if (text.isBlank()) body else "$text\n\n$body", clientId)
                     }
                 }
+                // 拿到服务端最终版本（含 [图片:key]），不然刚发的图在本地一直没有
+                runCatching { syncer.refreshClientMessage(clientId) }
                 syncer.syncEvents()
                 status = ""
             } catch (e: Exception) {
