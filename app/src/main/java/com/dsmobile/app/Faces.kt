@@ -22,7 +22,7 @@ private val FACE_BY_NAME = mapOf(
     "月亮" to "🌙", "太阳" to "☀️", "礼物" to "🎁", "庆祝" to "🎉",
     "烟花" to "🎆", "炸弹" to "💣", "刀" to "🔪", "闪电" to "⚡",
     "篮球" to "🏀", "足球" to "⚽", "乒乓" to "🏓", "便便" to "💩",
-    "骷髅" to "💀", "差劲" to "👎", "NO" to "🙅", "OK" to "👌",
+    "骷髅" to "💀", "差劲" to "👎", "NO" to "🙅", "OK" to "👌", "捂脸" to "🤦", "尴尬" to "😅", "无语" to "😑", "吃瓜" to "🍉", "狗头" to "🐶", "敲打" to "🔨", "糗大了" to "😳", "快哭了" to "🥹",
 )
 
 private val FACE_BY_ID = mapOf(
@@ -49,10 +49,19 @@ private val FACE_BY_ID = mapOf(
     "100" to "🕺", "101" to "💋", "102" to "☯️", "103" to "☯️",
 )
 
-fun replaceFaceMarkers(text: String): String = FACE_REGEX.replace(text) { match ->
-    val name = match.groupValues[1].trim()
-    FACE_BY_NAME[name]
-        ?: FACE_BY_NAME[name.lowercase()]
-        ?: FACE_BY_ID[name]
-        ?: "[$name]"
+private val BARE_FACE_REGEX = Regex("""\[([^\]\n]{1,6})]""")
+
+fun replaceFaceMarkers(text: String): String {
+    val withProtocol = FACE_REGEX.replace(text) { match ->
+        val name = match.groupValues[1].trim()
+        FACE_BY_NAME[name]
+            ?: FACE_BY_NAME[name.lowercase()]
+            ?: FACE_BY_ID[name]
+            ?: "[$name]"
+    }
+    // 模型有时直接写 [敲打]，不写 [face:敲打]；只换表情表里有的名字
+    return BARE_FACE_REGEX.replace(withProtocol) { match ->
+        val name = match.groupValues[1].trim()
+        FACE_BY_NAME[name] ?: FACE_BY_NAME[name.lowercase()] ?: match.value
+    }
 }

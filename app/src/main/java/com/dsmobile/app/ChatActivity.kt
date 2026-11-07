@@ -684,7 +684,18 @@ private fun ChatScreen(
                             }
                         } else {
                             val dataUrl = MediaUtils.imageToDataUrl(context, attachment.uri)
-                            api.chatWithImage(text, dataUrl, clientId)
+                            val r = api.chatWithImageDetailed(text, dataUrl, clientId)
+                            // ★ 把刚发的本地图按服务端 key 存进内存 + 磁盘：刷新成正式气泡时直接命中，不用再下载
+                            if (r.imageKeys.isNotEmpty()) {
+                                val bytes = runCatching {
+                                    android.util.Base64.decode(dataUrl.substringAfter("base64,", ""), android.util.Base64.DEFAULT)
+                                }.getOrNull()
+                                r.imageKeys.forEach { key ->
+                                    localDrawable?.let { MediaCaches.putImage(key, it) }
+                                    if (bytes != null) runCatching { api.cacheImageBytes(key, bytes) }
+                                }
+                            }
+                            r.text
                         }
                     }
                     "video" -> {

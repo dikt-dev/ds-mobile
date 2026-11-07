@@ -38,10 +38,11 @@ object MediaCaches {
      * 于是用户看到"图片消失一下再出现"。这里把本地位图先存起来，刷新后的第一个
      * 未命中缓存的图直接认领它，气泡一次到位。
      *
-     * 只保留最近 4 张、20 秒内有效：过期或发失败的不会被后来的图误认领。
+     * 只保留最近 4 张、3 分钟内有效：上传 + 等服务端压缩 + 等 AI 回复可能超过 20 秒，
+     * 窗口太短会让正式气泡退回「从服务器下载」，看起来就是「AI 都回话了图才出来」。
      */
     private val outgoing = ArrayDeque<Pair<Long, Drawable>>()
-    private const val OUTGOING_TTL_MS = 20_000L
+    private const val OUTGOING_TTL_MS = 180_000L
 
     fun rememberOutgoing(drawable: Drawable) {
         outgoing.addLast(System.currentTimeMillis() to drawable)

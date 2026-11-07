@@ -369,11 +369,66 @@ class ApiClient(
         }
     }
 
+    /** 回复正文 + 服务端这次实际落库的图片 key（用来把本地图按 key 绑定） */
+    data class ChatReply(val text: String, val imageKeys: List<String>)
+
+    suspend fun chatWithImageDetailed(
+        text: String,
+        dataUrl: String,
+        clientMessageId: String? = null,
+    ): ChatReply = chatWithImagesDetailed(text, listOf(dataUrl), clientMessageId)
+
+    /** 把本地图字节直接写进图片磁盘缓存（key 用服务端下发的 images/…）。 */
+    fun cacheImageBytes(key: String, bytes: ByteArray) {
+        diskCache?.put("image:$key", bytes)
+    }
+
     suspend fun chatWithImage(
         text: String,
         dataUrl: String,
         clientMessageId: String? = null,
     ): String = chatWithImages(text, listOf(dataUrl), clientMessageId, transient = false)
+
+    suspend fun chatWithImagesDetailed(
+        text: String,
+        dataUrls: List<String>,
+        clientMessageId: String? = null,
+    ): ChatReply = withContext(Dispatchers.IO) {
+        val parts = JSONArray()
+        if (text.isNotBlank()) parts.put(JSONObject().put("type", "text").put("text", text))
+        dataUrls.filter { it.startsWith("data:image/") }.forEach { url ->
+            parts.put(
+                JSONObject().put("type", "image_url")
+                    .put("image_url", JSONObject().put("url", url)),
+            )
+        }
+        val messages = JSONArray().put(JSONObject().put("role", "user").put("content", parts))
+        val body = JSONObject()
+            .put("messages", messages)
+            .put("stream", false)
+            .put("inject_history", true)
+        if (!clientMessageId.isNullOrBlank()) body.put("client_message_id", clientMessageId)
+        val request = Request.Builder()
+            .url("$baseUrl/v1/chat/completions")
+            .header("Authorization", "Bearer ${requireToken()}")
+            .header("X-Client-Channel", "mobile")
+            .header("X-Client-Voice", "1")
+            .post(body.toString().toRequestBody(jsonType))
+            .build()
+        execute(request).use { response ->
+            val textBody = response.body?.string().orEmpty()
+            if (!response.isSuccessful) throw ApiException(errorText(response.code, textBody))
+            val obj = JSONObject(textBody)
+            if (obj.optBoolean("held", false)) {
+                throw HeldException(obj.optString("until"), obj.optString("reason"), obj.optLong("until_ms", 0L))
+            }
+            if (obj.optBoolean("no_reply", false)) return@withContext ChatReply(NO_REPLY, emptyList())
+            val keys = obj.optJSONArray("user_image_keys")?.let { arr ->
+                (0 until arr.length()).map { arr.optString(it) }.filter { it.startsWith("images/") }
+            } ?: emptyList()
+            ChatReply(readCompletion(obj), keys)
+        }
+    }
 
     suspend fun chatWithImages(
         text: String,
@@ -434,22 +489,33 @@ class ApiClient(
      */
     suspend fun freshPlayUrl(bvid: String, cid: Long, cookie: String): String = withContext(Dispatchers.IO) {
         if (bvid.isBlank() || cid <= 0) return@withContext ""
-        runCatching {
-            val url = "https://api.bilibili.com/x/player/playurl" +
-                "?bvid=$bvid&cid=$cid&qn=64&fnval=1&fnver=0&fourk=0"
-            val req = Request.Builder().url(url)
-                .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/125.0 Mobile Safari/537.36")
-                .header("Referer", "https://www.bilibili.com/")
-                .apply { if (cookie.isNotBlank()) header("Cookie", cookie) }
-                .get().build()
-            execute(req).use { resp ->
-                val data = JSONObject(resp.body?.string().orEmpty()).optJSONObject("data")
-                val quality = data?.optInt("quality") ?: 0
-                val link = data?.optJSONArray("durl")?.optJSONObject(0)?.optString("url").orEmpty()
-                android.util.Log.i("BiliApi", "fresh playurl quality=$quality ok=" + link.isNotBlank())
-                link
-            }
-        }.getOrDefault("")
+        // ★ 先要 html5 的 mp4 直链：qn=64 会返回 PCDN edge 节点（*.edge.mountaintoys.cn），
+        //   千问 omni 拉不动，800ms 就报 Failed to download multimodal content（2026-11-06）。
+        val attempts = listOf(
+            "https://api.bilibili.com/x/player/playurl?bvid=$bvid&cid=$cid&qn=32&fnval=1&fnver=0&fourk=0&platform=html5",
+            "https://api.bilibili.com/x/player/playurl?bvid=$bvid&cid=$cid&qn=64&fnval=1&fnver=0&fourk=0",
+        )
+        var pcdnFallback = ""
+        for (url in attempts) {
+            val link = runCatching {
+                val req = Request.Builder().url(url)
+                    .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/125.0 Mobile Safari/537.36")
+                    .header("Referer", "https://www.bilibili.com/")
+                    .apply { if (cookie.isNotBlank()) header("Cookie", cookie) }
+                    .get().build()
+                execute(req).use { resp ->
+                    val data = JSONObject(resp.body?.string().orEmpty()).optJSONObject("data")
+                    val quality = data?.optInt("quality") ?: 0
+                    val l = data?.optJSONArray("durl")?.optJSONObject(0)?.optString("url").orEmpty()
+                    android.util.Log.i("BiliApi", "fresh playurl quality=$quality host=" + runCatching { java.net.URI(l).host }.getOrDefault(""))
+                    l
+                }
+            }.getOrDefault("")
+            if (link.isBlank()) continue
+            if (link.contains(".bilivideo.com") || link.contains(".hdslb.com")) return@withContext link
+            if (pcdnFallback.isBlank()) pcdnFallback = link
+        }
+        pcdnFallback
     }
 
     suspend fun biliImage(url: String): ByteArray? = withContext(Dispatchers.IO) {

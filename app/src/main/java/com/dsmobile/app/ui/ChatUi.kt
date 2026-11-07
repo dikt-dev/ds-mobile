@@ -1772,8 +1772,11 @@ fun ImageBlock(api: ApiClient, key: String) {
             MediaCaches.image(key) ?: MediaCaches.claimOutgoing()?.also { MediaCaches.putImage(key, it) },
         )
     }
-    LaunchedEffect(key) {
+    var failed by remember(key) { mutableStateOf(false) }
+    var attempt by remember(key) { mutableStateOf(0) }
+    LaunchedEffect(key, attempt) {
         if (drawable == null) {
+            failed = false
             runCatching { api.image(key) }.onSuccess { bytes ->
                 runCatching {
                     val decoded = ImageDecoder.decodeDrawable(
@@ -1785,6 +1788,11 @@ fun ImageBlock(api: ApiClient, key: String) {
                     MediaCaches.putImage(key, it)
                     drawable = it
                 }
+            }.onFailure {
+                // 首次拉取可能撞上服务端上传落盘前/瞬时 5xx，退避重试，别留白块
+                failed = true
+                kotlinx.coroutines.delay(1200)
+                if (attempt < 3) attempt += 1
             }
         }
     }
