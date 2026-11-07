@@ -575,6 +575,8 @@ private fun ChatScreen(
             voices.forEach { TtsManager.prepare(context, settings, it) }
             // 先让 D1 的 user/assistant 落进 Room，再移除本地 pending；
             // 反过来会先删掉自己的气泡，等网络回来才补上，产生可见的空白闪动。
+            // 拿到服务端最终版本（含 [图片:key]），不然刚发的图在本地一直没有
+            runCatching { syncer.refreshClientMessage(pendingMessage.clientMessageId) }
             syncer.syncEvents()
             dao.deletePending(pendingMessage.copy(id = pendingId))
             failedPendingIds.remove(pendingId)

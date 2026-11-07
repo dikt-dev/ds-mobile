@@ -92,6 +92,18 @@ suspend fun syncAllHistory() {
  * pending 对账：断网/超时后服务端可能已经落库，本地 pending 不能永远卡在底部。
  * 服务端按 client_message_id 查；找到就删除 pending，找不到才标记失败。
  */
+/**
+ * 发完之后把自己这条消息的「最终版本」拉回来。
+ *
+ * 服务端是先落纯文字、再补 [图片:key]/[BILI_META]；而增量同步只按 id 拉新消息，
+ * 不会重拉被改写的旧消息——于是刚发的图在本地永远是「没有图」的那一版（2026-11-07）。
+ */
+suspend fun refreshClientMessage(clientMessageId: String) {
+    if (clientMessageId.isBlank()) return
+    val found = runCatching { api.clientMessages(listOf(clientMessageId)) }.getOrNull() ?: return
+    if (found.isNotEmpty()) dao.applyServerMessages(found)
+}
+
 suspend fun reconcilePending() {
     val rows = dao.pending()
     if (rows.isEmpty()) return
