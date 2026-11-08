@@ -136,7 +136,6 @@ import com.dsmobile.app.ui.ChatComposer
 import com.dsmobile.app.ui.ChatLoading
 import com.dsmobile.app.ui.ChatTopBar
 import com.dsmobile.app.ui.DaySeparator
-import com.dsmobile.app.ui.TimeSeparator
 import com.dsmobile.app.ui.EmptyChat
 import com.dsmobile.app.ui.MessageItem
 import com.dsmobile.app.ui.PairingScreen
@@ -1329,10 +1328,6 @@ private fun ChatScreen(
                     if (!sameSpeaker && older != null) {
                         Spacer(Modifier.height(10.dp))
                     }
-                    // 跨小时的空档：组首的小字时间之外再画一条居中分隔，一眼看出断开了
-                    if (!newDay && timeBreak && gapMinutes >= LONG_GAP_MINUTES) {
-                        TimeSeparator(messageTime(message.createdAt))
-                    }
                     MessageItem(
                         message = message,
                         api = api,
@@ -1598,9 +1593,6 @@ internal fun orderForDisplay(messages: List<MessageEntity>): List<MessageEntity>
 /** 这条消息是多久以前发的（毫秒）。解析不了就当 0，不弹重试。 */
 /** 同一人隔了多久就重新起一组（分钟）。 */
 private const val GROUP_BREAK_MINUTES = 10
-
-/** 隔了多久才额外画一条居中时间分隔（分钟）。 */
-private const val LONG_GAP_MINUTES = 60
 
 private fun messageAgeMillis(createdAt: String): Long = runCatching {
     System.currentTimeMillis() - java.time.OffsetDateTime.parse(createdAt).toInstant().toEpochMilli()
