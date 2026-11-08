@@ -175,6 +175,16 @@ internal fun minutesOfDay(raw: String): Int {
     return h * 60 + m
 }
 
+/** 两条消息相差多少分钟；任一条解析不出来返回 -1。
+ *
+ * 用来判断「同一个人隔了多久才再说」：之前只按发言人分组，
+ * 于是 10:29 和 13:48 的同一人消息被并成一条，看不见时间（2026-11-08）。
+ */
+internal fun minutesBetween(newer: String, older: String): Int {
+    val a = minutesOfDay(newer)
+    val b = minutesOfDay(older)
+    return if (a < 0 || b < 0) -1 else a - b
+}
 internal fun messageTime(raw: String): String {
     val time = raw.substringAfter('T', "").take(5)
     return if (time.length == 5) time else ""

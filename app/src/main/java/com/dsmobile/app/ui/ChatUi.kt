@@ -780,6 +780,29 @@ fun DaySeparator(day: String) {
     }
 }
 
+/**
+ * 居中时间分隔：跨小时的空档用。
+ *
+ * 分组断开只会在组首用一行小字给时间（「大肥鱼 13:48」），
+ * 隔了三小时的那一段还是容易看成上一句的延续，所以再画一条（2026-11-08）。
+ */
+@Composable
+fun TimeSeparator(label: String) {
+    if (label.isBlank()) return
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = DsSpace.xs),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.weight(1f).height(1.dp).background(Ds.colors.hairline))
+        Text(
+            label,
+            modifier = Modifier.padding(horizontal = DsSpace.sm),
+            style = MaterialTheme.typography.labelSmall,
+            color = Ds.colors.inkTertiary,
+        )
+        Box(Modifier.weight(1f).height(1.dp).background(Ds.colors.hairline))
+    }
+}
 private fun dayLabel(day: String): String {
     val parts = day.split("-")
     val month = parts.getOrNull(0)?.toIntOrNull() ?: return day

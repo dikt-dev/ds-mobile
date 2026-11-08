@@ -136,6 +136,7 @@ import com.dsmobile.app.ui.ChatComposer
 import com.dsmobile.app.ui.ChatLoading
 import com.dsmobile.app.ui.ChatTopBar
 import com.dsmobile.app.ui.DaySeparator
+import com.dsmobile.app.ui.TimeSeparator
 import com.dsmobile.app.ui.EmptyChat
 import com.dsmobile.app.ui.MessageItem
 import com.dsmobile.app.ui.PairingScreen
@@ -1309,20 +1310,28 @@ private fun ChatScreen(
                     // 主动消息总是另起一组：它和半小时前的对话不是同一段，
                     // 混在一起就看不出来"这句是几点自己冒出来的"。
                     val gapMinutes = if (older != null && !newDay) {
-                        minutesOfDay(message.createdAt) - minutesOfDay(older.createdAt)
+                        minutesBetween(message.createdAt, older.createdAt)
                     } else {
-                        0
+                        -1
                     }
                     val proactiveBreak = message.proactiveKind != null &&
                         (older == null || older.proactiveKind == null || newDay || gapMinutes >= 10)
+                    // ★ 时间断档：同一个人隔久了也要另起一组。
+                    //   以前只看「是不是同一个人」，于是 10:29 和 13:48 被并成一条，
+                    //   第二条完全没有时间（2026-11-08 用户反馈）。
+                    val timeBreak = gapMinutes >= GROUP_BREAK_MINUTES
                     // 同一个人连着说时贴紧，换人留一口气——全一样间距会糊成一片
                     val sameSpeaker = older != null && !newDay &&
-                        older.role == message.role && !proactiveBreak
+                        older.role == message.role && !proactiveBreak && !timeBreak
                     val nextSameSpeaker = newer != null &&
                         messageDay(newer.createdAt) == day &&
                         newer.role == message.role
                     if (!sameSpeaker && older != null) {
                         Spacer(Modifier.height(10.dp))
+                    }
+                    // 跨小时的空档：组首的小字时间之外再画一条居中分隔，一眼看出断开了
+                    if (!newDay && timeBreak && gapMinutes >= LONG_GAP_MINUTES) {
+                        TimeSeparator(messageTime(message.createdAt))
                     }
                     MessageItem(
                         message = message,
@@ -1587,6 +1596,12 @@ internal fun orderForDisplay(messages: List<MessageEntity>): List<MessageEntity>
 
 
 /** 这条消息是多久以前发的（毫秒）。解析不了就当 0，不弹重试。 */
+/** 同一人隔了多久就重新起一组（分钟）。 */
+private const val GROUP_BREAK_MINUTES = 10
+
+/** 隔了多久才额外画一条居中时间分隔（分钟）。 */
+private const val LONG_GAP_MINUTES = 60
+
 private fun messageAgeMillis(createdAt: String): Long = runCatching {
     System.currentTimeMillis() - java.time.OffsetDateTime.parse(createdAt).toInstant().toEpochMilli()
 }.getOrDefault(0L)
