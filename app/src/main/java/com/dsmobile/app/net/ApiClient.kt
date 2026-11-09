@@ -26,10 +26,10 @@ import java.util.concurrent.TimeUnit
 const val NO_REPLY = "[END]"
 
 /** 她说到一半被 max_tokens 截断时的收尾，避免把半句话当成完整回复。 */
-private const val TRUNCATED_HINT = "……（说到一半，断了）"
+internal const val TRUNCATED_HINT = "……（说到一半，断了）"
 
 /** 从 OpenAI 兼容响应里取正文；finish_reason=length 时补一句截断提示。 */
-private fun readCompletion(obj: JSONObject): String {
+internal fun readCompletion(obj: JSONObject): String {
     val choice = obj.optJSONArray("choices")?.optJSONObject(0)
     val content = choice
         ?.optJSONObject("message")
@@ -42,8 +42,8 @@ private fun readCompletion(obj: JSONObject): String {
 }
 
 class ApiClient(
-    private val baseUrl: String,
-    private val token: String? = null,
+    internal val baseUrl: String,
+    internal val token: String? = null,
     private val biliSessdata: String = "",
     private val biliCookie: String = "",
     cacheDir: File? = null,
@@ -59,9 +59,9 @@ class ApiClient(
     }
 
     /** 构造参数不是 val，方法体里访问不到，提一个属性出来给视频文件缓存用。 */
-    private val cacheRoot: File? = cacheDir
-    private val diskCache = cacheDir?.let { MediaDiskCache(it) }
-    private val jsonType = "application/json; charset=utf-8".toMediaType()
+    internal val cacheRoot: File? = cacheDir
+    internal val diskCache = cacheDir?.let { MediaDiskCache(it) }
+    internal val jsonType = "application/json; charset=utf-8".toMediaType()
 
     /**
      * 全 App 共用一个 OkHttpClient。
@@ -70,7 +70,7 @@ class ApiClient(
      * 所以 5 秒一次的轮询永远用不上 keep-alive，每次都要完整 TCP + TLS 握手，
      * 一天两万次。client 本身无状态，token/baseUrl 仍按实例传，共享是安全的。
      */
-    private val client = sharedClient
+    internal val client = sharedClient
 
     suspend fun pair(pairCode: String, deviceName: String, deviceId: String): String =
         withContext(Dispatchers.IO) {
@@ -271,222 +271,6 @@ class ApiClient(
         }
     }
 
-    suspend fun chat(
-        text: String,
-        clientMessageId: String? = null,
-        /** false = 只问不记（规划轮之类，不写 D1、不进记忆）。 */
-        record: Boolean = true,
-    ): String = withContext(Dispatchers.IO) {
-        val messages = JSONArray().put(JSONObject().put("role", "user").put("content", text))
-        val body = JSONObject()
-            .put("messages", messages)
-            .put("stream", false)
-            .put("inject_history", true)
-        if (!clientMessageId.isNullOrBlank()) body.put("client_message_id", clientMessageId)
-        if (!record) body.put("record", false)
-        val bodyText = body.toString()
-        val request = Request.Builder()
-            .url("$baseUrl/v1/chat/completions")
-            .header("Authorization", "Bearer ${requireToken()}")
-            .header("X-Client-Channel", "mobile")
-            .header("X-Client-Voice", "1")
-            .post(bodyText.toRequestBody(jsonType))
-            .build()
-        execute(request).use { response ->
-            val textBody = response.body?.string().orEmpty()
-            if (!response.isSuccessful) throw ApiException(errorText(response.code, textBody))
-            val obj = JSONObject(textBody)
-            // 被闸门压住：她这会儿在睡/在忙，消息已经落库，到点会回。
-            // 这不是失败，必须和「回复为空」分开，否则界面弹"发送失败"，人就会反复重发。
-            if (obj.optBoolean("held", false)) {
-                throw HeldException(obj.optString("until"), obj.optString("reason"), obj.optLong("until_ms", 0L))
-            }
-            if (obj.optBoolean("no_reply", false)) {
-                return@withContext NO_REPLY
-            }
-            readCompletion(obj)
-        }
-    }
-
-
-    suspend fun image(key: String): ByteArray = withContext(Dispatchers.IO) {
-        val cacheKey = "image:$key"
-        diskCache?.get(cacheKey)?.let { return@withContext it }
-        val encoded = java.net.URLEncoder.encode(key, "UTF-8")
-        val request = Request.Builder()
-            .url("$baseUrl/api/app/image?key=$encoded")
-            .header("Authorization", "Bearer ${requireToken()}")
-            .get()
-            .build()
-        execute(request).use { response ->
-            val bytes = response.body?.bytes() ?: ByteArray(0)
-            if (!response.isSuccessful) throw ApiException(errorText(response.code, ""))
-            diskCache?.put(cacheKey, bytes)
-            bytes
-        }
-    }
-
-    /** 日记配图：key 形如 diary-images/2026-10-31/cover.jpg。 */
-    suspend fun diaryImage(key: String): ByteArray = withContext(Dispatchers.IO) {
-        val cacheKey = "diary-image:$key"
-        diskCache?.get(cacheKey)?.let { return@withContext it }
-        val request = Request.Builder()
-            .url("$baseUrl/api/app/diary-image/" + key.split("/").joinToString("/") { java.net.URLEncoder.encode(it, "UTF-8") })
-            .header("Authorization", "Bearer ${requireToken()}")
-            .get()
-            .build()
-        execute(request).use { response ->
-            val bytes = response.body?.bytes() ?: ByteArray(0)
-            if (!response.isSuccessful) throw ApiException(errorText(response.code, ""))
-            diskCache?.put(cacheKey, bytes)
-            bytes
-        }
-    }
-
-    suspend fun stt(wav: ByteArray, azureKey: String, region: String): String = withContext(Dispatchers.IO) {
-        if (azureKey.isBlank()) throw ApiException("未配置 Azure Speech Key")
-        if (wav.size < 1024) throw ApiException("录音太短")
-        val safeRegion = region.trim().ifBlank { "eastus" }
-        val request = Request.Builder()
-            .url(
-                "https://$safeRegion.stt.speech.microsoft.com/speech/recognition/" +
-                    "conversation/cognitiveservices/v1?language=zh-CN",
-            )
-            .header("Ocp-Apim-Subscription-Key", azureKey)
-            .header("Content-Type", "audio/wav; codecs=audio/pcm; samplerate=16000")
-            .header("Accept", "application/json")
-            .post(wav.toRequestBody("audio/wav".toMediaType()))
-            .build()
-        execute(request).use { response ->
-            val body = response.body?.string().orEmpty()
-            if (!response.isSuccessful) throw ApiException("STT HTTP ${response.code}: ${body.take(200)}")
-            val json = JSONObject(body)
-            val text = json.optString("DisplayText").ifBlank {
-                json.optString("Text").ifBlank { json.optString("text") }
-            }.trim()
-            if (text.isBlank()) throw ApiException("没有识别到文字")
-            text
-        }
-    }
-
-    /** 回复正文 + 服务端这次实际落库的图片 key（用来把本地图按 key 绑定） */
-    data class ChatReply(val text: String, val imageKeys: List<String>)
-
-    suspend fun chatWithImageDetailed(
-        text: String,
-        dataUrl: String,
-        clientMessageId: String? = null,
-    ): ChatReply = chatWithImagesDetailed(text, listOf(dataUrl), clientMessageId)
-
-    /** 把本地图字节直接写进图片磁盘缓存（key 用服务端下发的 images/…）。 */
-    fun cacheImageBytes(key: String, bytes: ByteArray) {
-        diskCache?.put("image:$key", bytes)
-    }
-
-    suspend fun chatWithImage(
-        text: String,
-        dataUrl: String,
-        clientMessageId: String? = null,
-    ): String = chatWithImages(text, listOf(dataUrl), clientMessageId, transient = false)
-
-    suspend fun chatWithImagesDetailed(
-        text: String,
-        dataUrls: List<String>,
-        clientMessageId: String? = null,
-    ): ChatReply = withContext(Dispatchers.IO) {
-        val parts = JSONArray()
-        if (text.isNotBlank()) parts.put(JSONObject().put("type", "text").put("text", text))
-        dataUrls.filter { it.startsWith("data:image/") }.forEach { url ->
-            parts.put(
-                JSONObject().put("type", "image_url")
-                    .put("image_url", JSONObject().put("url", url)),
-            )
-        }
-        val messages = JSONArray().put(JSONObject().put("role", "user").put("content", parts))
-        val body = JSONObject()
-            .put("messages", messages)
-            .put("stream", false)
-            .put("inject_history", true)
-        if (!clientMessageId.isNullOrBlank()) body.put("client_message_id", clientMessageId)
-        val request = Request.Builder()
-            .url("$baseUrl/v1/chat/completions")
-            .header("Authorization", "Bearer ${requireToken()}")
-            .header("X-Client-Channel", "mobile")
-            .header("X-Client-Voice", "1")
-            .post(body.toString().toRequestBody(jsonType))
-            .build()
-        execute(request).use { response ->
-            val textBody = response.body?.string().orEmpty()
-            if (!response.isSuccessful) throw ApiException(errorText(response.code, textBody))
-            val obj = JSONObject(textBody)
-            if (obj.optBoolean("held", false)) {
-                throw HeldException(obj.optString("until"), obj.optString("reason"), obj.optLong("until_ms", 0L))
-            }
-            if (obj.optBoolean("no_reply", false)) return@withContext ChatReply(NO_REPLY, emptyList())
-            val keys = obj.optJSONArray("user_image_keys")?.let { arr ->
-                (0 until arr.length()).map { arr.optString(it) }.filter { it.startsWith("images/") }
-            } ?: emptyList()
-            ChatReply(readCompletion(obj), keys)
-        }
-    }
-
-    suspend fun chatWithImages(
-        text: String,
-        dataUrls: List<String>,
-        clientMessageId: String? = null,
-        transient: Boolean = false,
-        /** false = 只问不记（规划轮之类，避免污染 D1 与记忆）。 */
-        record: Boolean = true,
-    ): String = withContext(Dispatchers.IO) {
-        val parts = JSONArray()
-        if (text.isNotBlank()) parts.put(JSONObject().put("type", "text").put("text", text))
-        dataUrls.filter { it.startsWith("data:image/") }.forEach { url ->
-            parts.put(
-                JSONObject()
-                    .put("type", "image_url")
-                    .put(
-                        "image_url",
-                        JSONObject().put(
-                            "url",
-                            if (transient) "$url#__transient" else url,
-                        ),
-                    ),
-            )
-        }
-        val messages = JSONArray().put(JSONObject().put("role", "user").put("content", parts))
-        val body = JSONObject()
-            .put("messages", messages)
-            .put("stream", false)
-            .put("inject_history", true)
-        if (!clientMessageId.isNullOrBlank()) body.put("client_message_id", clientMessageId)
-        if (!record) body.put("record", false)
-        val request = Request.Builder()
-            .url("$baseUrl/v1/chat/completions")
-            .header("Authorization", "Bearer ${requireToken()}")
-            .header("X-Client-Channel", "mobile")
-            .header("X-Client-Voice", "1")
-            .post(body.toString().toRequestBody(jsonType))
-            .build()
-        execute(request).use { response ->
-            val textBody = response.body?.string().orEmpty()
-            if (!response.isSuccessful) throw ApiException(errorText(response.code, textBody))
-            val obj = JSONObject(textBody)
-            // 被闸门压住：她这会儿在睡/在忙，消息已经落库，到点会回。
-            // 这不是失败，必须和「回复为空」分开，否则界面弹"发送失败"，人就会反复重发。
-            if (obj.optBoolean("held", false)) {
-                throw HeldException(obj.optString("until"), obj.optString("reason"), obj.optLong("until_ms", 0L))
-            }
-            if (obj.optBoolean("no_reply", false)) {
-                return@withContext NO_REPLY
-            }
-            readCompletion(obj)
-        }
-    }
-
-    /**
-     * 现取一条可用的 MP4 直链。缓存里的 playUrl 带 deadline，放久了会 403，
-     * 发视频前重新要一次（一次 API，几百毫秒），比下载失败再回退雪碧图划算。
-     */
     suspend fun freshPlayUrl(bvid: String, cid: Long, cookie: String): String = withContext(Dispatchers.IO) {
         if (bvid.isBlank() || cid <= 0) return@withContext ""
         // ★ 先要 html5 的 mp4 直链：qn=64 会返回 PCDN edge 节点（*.edge.mountaintoys.cn），
@@ -856,7 +640,6 @@ class ApiClient(
         }.getOrNull()
     }
 
-
     private fun workerBiliPreview(url: String): BiliPreview? = runCatching {
         val encoded = java.net.URLEncoder.encode(url, "UTF-8")
         val request = Request.Builder()
@@ -912,182 +695,7 @@ class ApiClient(
      *
      * 失败不抛错——视频该发还得发，只是卡里少一段台词。
      */
-    suspend fun videoAsr(file: File): Pair<List<AsrLine>, Boolean> = withContext(Dispatchers.IO) {
-        runCatching {
-            val body = file.asRequestBody("audio/mp4".toMediaType())
-            val req = Request.Builder()
-                .url(baseUrl.trimEnd('/') + "/api/app/video-asr")
-                .header("authorization", "Bearer " + (token ?: ""))
-                .post(body)
-                .build()
-            sharedClient.newCall(req).execute().use { resp ->
-                val text = resp.body?.string().orEmpty()
-                if (!resp.isSuccessful) return@use emptyList<AsrLine>() to true
-                val root = JSONObject(text)
-                val arr = root.optJSONArray("lines") ?: JSONArray()
-                val lines = (0 until arr.length()).mapNotNull { i ->
-                    val o = arr.optJSONObject(i) ?: return@mapNotNull null
-                    val t = o.optString("text").trim()
-                    if (t.isEmpty()) null else AsrLine(o.optDouble("t", 0.0), t)
-                }
-                lines to false
-            }
-        }.getOrDefault(Pair(emptyList<AsrLine>(), true))
-    }
 
-    /**
-     * 视频理解：服务端拿签名 URL 交给千问 omni，看完返回带时间点的观察笔记。
-     *
-     * 失败返回 null——调用方退回「抽帧 + whisper」那条老路，消息照发。
-     */
-    suspend fun videoVision(key: String): String? = withContext(Dispatchers.IO) {
-        runCatching {
-            val req = Request.Builder()
-                .url(baseUrl.trimEnd('/') + "/api/app/video-vision")
-                .header("authorization", "Bearer " + (token ?: ""))
-                .post(JSONObject().put("key", key).toString().toRequestBody("application/json".toMediaType()))
-                .build()
-            sharedClient.newCall(req).execute().use { resp ->
-                val text = resp.body?.string().orEmpty()
-                if (!resp.isSuccessful) return@use null
-                val root = JSONObject(text)
-                if (!root.optBoolean("ok")) null else root.optString("text").takeIf { it.isNotBlank() }
-            }
-        }.getOrNull()
-    }
-
-    /**
-     * B 站视频理解：把 playUrl 直链交给服务端，让千问 omni 看完整段画面。
-     *
-     * 服务端不碰 B 站接口（机房 IP 会被 412），直链由手机上现取现传。
-     * 失败返回 null，卡片保持原来的大纲 + 字幕 + 雪碧图。
-     */
-    suspend fun biliVision(
-        direct: String,
-        title: String,
-        duration: Int,
-        cacheKey: String,
-    ): String? = withContext(Dispatchers.IO) {
-        if (direct.isBlank()) return@withContext null
-        runCatching {
-            val payload = JSONObject()
-                .put("direct", direct)
-                .put("title", title)
-                .put("duration", duration)
-                .put("cacheKey", cacheKey)
-                .toString()
-            val req = Request.Builder()
-                .url(baseUrl.trimEnd('/') + "/api/app/bili-vision")
-                .header("authorization", "Bearer " + (token ?: ""))
-                .post(payload.toRequestBody("application/json".toMediaType()))
-                .build()
-            sharedClient.newCall(req).execute().use { resp ->
-                if (!resp.isSuccessful) return@use null
-                val root = JSONObject(resp.body?.string().orEmpty())
-                if (!root.optBoolean("ok")) null else root.optString("text").takeIf { it.isNotBlank() }
-            }
-        }.getOrNull()
-    }
-
-    suspend fun uploadMedia(context: Context, uri: Uri): String = withContext(Dispatchers.IO) {
-        val resolver = context.contentResolver
-        val mime = resolver.getType(uri) ?: "application/octet-stream"
-        val size = resolver.query(uri, arrayOf(OpenableColumns.SIZE), null, null, null)?.use { cursor ->
-            if (cursor.moveToFirst()) cursor.getLong(0) else 0L
-        } ?: 0L
-        if (size > 60L * 1024 * 1024) throw ApiException("文件超过 60MB")
-        val body = object : RequestBody() {
-            override fun contentType() = mime.toMediaTypeOrNull()
-            override fun contentLength() = size
-            override fun writeTo(sink: BufferedSink) {
-                resolver.openInputStream(uri)?.use { input ->
-                    input.source().use { source -> sink.writeAll(source) }
-                } ?: throw ApiException("无法读取文件")
-            }
-        }
-        val request = Request.Builder()
-            .url("$baseUrl/api/app/upload/video")
-            .header("Authorization", "Bearer ${requireToken()}")
-            .post(body)
-            .build()
-        execute(request).use { response ->
-            val text = response.body?.string().orEmpty()
-            if (!response.isSuccessful) throw ApiException(errorText(response.code, text))
-            JSONObject(text).optString("key").ifBlank { throw ApiException("上传响应缺少 key") }
-        }
-    }
-
-    /** 拍照后直接发：不用落临时文件、不用 FileProvider，少一层权限问题。 */
-    suspend fun uploadMediaBytes(bytes: ByteArray, mime: String = "image/jpeg"): String =
-        withContext(Dispatchers.IO) {
-            if (bytes.size > 60L * 1024 * 1024) throw ApiException("文件超过 60MB")
-            val request = Request.Builder()
-                .url("$baseUrl/api/app/upload/video")
-                .header("Authorization", "Bearer ${requireToken()}")
-                .post(bytes.toRequestBody(mime.toMediaTypeOrNull()))
-                .build()
-            execute(request).use { response ->
-                val text = response.body?.string().orEmpty()
-                if (!response.isSuccessful) throw ApiException(errorText(response.code, text))
-                JSONObject(text).optString("key").ifBlank { throw ApiException("上传响应缺少 key") }
-            }
-        }
-
-    fun mediaUrl(key: String): String =
-        "$baseUrl/api/app/media?key=${java.net.URLEncoder.encode(key, "UTF-8")}"
-
-    /**
-     * 视频落地成文件：第二次看同一条直接读本地，不再重新下载。
-     *
-     * App 给了 1GB 缓存配额，视频是最占流量也最值得缓存的东西——
-     * 不落地的话每划回来一次就要重下一遍。
-     */
-    /** 同步看一眼本地有没有这个视频文件（不下载），用于决定播放器起哪种源。 */
-    fun cachedMediaFile(key: String): File? {
-        val root = cacheRoot ?: return null
-        val safe = key.replace(Regex("[^A-Za-z0-9._-]"), "_")
-        val target = File(File(root, "media-files"), safe)
-        return if (target.isFile && target.length() > 0L) target else null
-    }
-
-    suspend fun mediaFile(key: String): File? = withContext(Dispatchers.IO) {
-        val root = cacheRoot ?: return@withContext null
-        val safe = key.replace(Regex("[^A-Za-z0-9._-]"), "_")
-        val target = File(File(root, "media-files"), safe)
-        if (target.isFile && target.length() > 0L) return@withContext target
-        val bytes = runCatching { mediaBytes(key) }.getOrNull() ?: return@withContext null
-        runCatching {
-            target.parentFile?.mkdirs()
-            val tmp = File(target.parentFile, "${target.name}.tmp")
-            tmp.writeBytes(bytes)
-            if (!tmp.renameTo(target)) {
-                target.writeBytes(bytes)
-                tmp.delete()
-            }
-            target
-        }.getOrNull()
-    }
-
-    suspend fun mediaBytes(key: String): ByteArray = withContext(Dispatchers.IO) {
-        val cacheKey = "media:$key"
-        diskCache?.get(cacheKey)?.let { return@withContext it }
-        val request = Request.Builder()
-            .url(mediaUrl(key))
-            .header("Authorization", "Bearer ${requireToken()}")
-            .get()
-            .build()
-        execute(request).use { response ->
-            if (!response.isSuccessful) throw ApiException("HTTP ${response.code}")
-            val bytes = response.body?.bytes() ?: throw ApiException("媒体为空")
-            diskCache?.put(cacheKey, bytes)
-            bytes
-        }
-    }
-
-    fun mediaHeaders(): Map<String, String> =
-        mapOf("Authorization" to "Bearer ${requireToken()}")
-
-    /** 缓存键带版本：字段结构变了就自然失效，不需要清用户数据。 */
     private fun biliKey(url: String): String = "v2:" +
         "bili:${biliSessdata.hashCode()}:$url"
 
@@ -1213,88 +821,6 @@ class ApiClient(
     }
 
     /** 日记列表：锁着的只有日期/天气/身体，正文压根不在这个响应里。 */
-    suspend fun diaryList(limit: Int = 60): List<DiaryItem> = withContext(Dispatchers.IO) {
-        runCatching {
-            val request = Request.Builder()
-                .url("$baseUrl/api/app/ai-diary/index?limit=$limit")
-                .header("Authorization", "Bearer ${requireToken()}")
-                .get()
-                .build()
-            execute(request).use { response ->
-                if (!response.isSuccessful) return@runCatching emptyList()
-                val root = JSONObject(response.body?.string().orEmpty())
-                val arr = root.optJSONArray("items") ?: return@runCatching emptyList()
-                buildList {
-                    for (i in 0 until arr.length()) {
-                        val o = arr.optJSONObject(i) ?: continue
-                        add(
-                            DiaryItem(
-                                date = o.optString("date"),
-                                weekday = o.optString("weekday"),
-                                weather = o.optString("weather"),
-                                tempC = if (o.has("tempC") && !o.isNull("tempC")) o.optInt("tempC") else null,
-                                location = o.optString("location"),
-                                health = if (o.has("health") && !o.isNull("health")) o.optInt("health") else null,
-                                visible = o.optBoolean("visible"),
-                                asked = o.optBoolean("asked"),
-                                expired = o.optBoolean("expired"),
-                                declined = o.optBoolean("declined"),
-                            )
-                        )
-                    }
-                }
-            }
-        }.getOrElse { emptyList() }
-    }
-
-    /** 单篇：没同意时 text 为空，只回基本信息和一句状态。 */
-    suspend fun diaryDetail(date: String): DiaryDetail? = withContext(Dispatchers.IO) {
-        runCatching {
-            val request = Request.Builder()
-                .url("$baseUrl/api/app/ai-diary?date=$date")
-                .header("Authorization", "Bearer ${requireToken()}")
-                .get()
-                .build()
-            execute(request).use { response ->
-                if (!response.isSuccessful) return@runCatching null
-                val o = JSONObject(response.body?.string().orEmpty())
-                val basics = o.optJSONObject("basics")
-                DiaryDetail(
-                    date = o.optString("date", date),
-                    visible = o.optBoolean("visible"),
-                    text = if (o.isNull("text")) null else o.optString("text").ifBlank { null },
-                    asked = o.optBoolean("asked"),
-                    expired = o.optBoolean("expired"),
-                    declined = o.optBoolean("declined"),
-                    peeked = o.optBoolean("peeked"),
-                    images = o.optJSONArray("images")?.let { arr ->
-                        (0 until arr.length()).map { arr.optString(it) }.filter { it.isNotBlank() }
-                    } ?: emptyList(),
-                    reason = o.optString("reason"),
-                    weekday = basics?.optString("weekday").orEmpty(),
-                    weather = basics?.optString("weather").orEmpty(),
-                    tempC = basics?.let { if (it.has("tempC") && !it.isNull("tempC")) it.optInt("tempC") else null },
-                    location = basics?.optString("location").orEmpty(),
-                )
-            }
-        }.getOrNull()
-    }
-
-    /** 「问问她」：把这天标成待回答，等她聊天里回话。 */
-    suspend fun askDiary(date: String): Boolean = withContext(Dispatchers.IO) {
-        runCatching {
-            val body = JSONObject().put("date", date).toString()
-            val request = Request.Builder()
-                .url("$baseUrl/api/app/ai-diary/ask")
-                .header("Authorization", "Bearer ${requireToken()}")
-                .post(body.toRequestBody(jsonType))
-                .build()
-            execute(request).use { it.isSuccessful }
-        }.getOrElse { false }
-    }
-
-    /** 她现在的状态（睡了/在忙/有空）+ 正在做什么，顶栏那行用它。 */
-    /** 到点拉取：让服务端把压着的消息生成出来（客户端按 until_ms 挂闹钟后调用）。 */
     suspend fun flushHeld(): Int = withContext(Dispatchers.IO) {
         val req = Request.Builder().url("$baseUrl/api/app/flush").post("{}".toRequestBody(jsonType)).build()
         client.newCall(req).execute().use { res ->
@@ -1329,11 +855,11 @@ class ApiClient(
         }.getOrNull()
     }
 
-    private fun execute(request: Request) = client.newCall(request).execute()
+    internal fun execute(request: Request) = client.newCall(request).execute()
 
-    private fun requireToken(): String = token ?: throw ApiException("设备未配对")
+    internal fun requireToken(): String = token ?: throw ApiException("设备未配对")
 
-    private fun errorText(code: Int, body: String): String {
+    internal fun errorText(code: Int, body: String): String {
         val msg = runCatching { JSONObject(body).optString("error") }.getOrDefault("")
         return "HTTP $code" + if (msg.isBlank()) "" else "：$msg"
     }
