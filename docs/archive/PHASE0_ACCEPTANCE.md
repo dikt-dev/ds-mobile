@@ -89,7 +89,7 @@
 
 ## 4. P0-03 API 契约
 
-已完成：[API_CONTRACT.md](API_CONTRACT.md)
+已完成：[API_CONTRACT.md](../API_CONTRACT.md)
 
 覆盖：
 

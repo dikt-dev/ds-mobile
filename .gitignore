@@ -21,3 +21,6 @@ push.log
 build*.log
 *.log
 hs_err_pid*.log
+replay_pid*.log
+sync-block.txt
+dist/

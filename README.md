@@ -2,14 +2,14 @@
 
 红米 K60（Android 15）上的私有聊天客户端，直接对接 `ds-memory` Worker，**已取代 QQ + Termux/NapCat，是唯一的移动入口**。
 
-> 2026-10-25 起 QQ/Termux 已从手机卸载，DS-Mobile 保持运行（见 [docs/RETIREMENT.md](docs/RETIREMENT.md)）。
+> 2026-10-25 起 QQ/Termux 已从手机卸载，DS-Mobile 保持运行（见 [docs/RETIREMENT.md](docs/archive/RETIREMENT.md)）。
 
 ## 文档
 
 - [UI 规范](docs/CHAT_UI.md)（「纸墨」设计系统：色板、字号、各页面结构）
-- [项目报告](docs/PROJECT_REPORT.md)（评审稿 v1.0，含阶段规划与验收标准）
+- [项目报告](docs/archive/PROJECT_REPORT.md)（评审稿 v1.0，含阶段规划与验收标准）
 - [API 契约](docs/API_CONTRACT.md)（阶段 0 冻结稿）
-- [交付包说明](docs/DELIVERY.md)（安装包、SHA-256、已具备能力与已知缺口）
+- [交付包说明](docs/archive/DELIVERY.md)（安装包、SHA-256、已具备能力与已知缺口）
 - 阶段验收：`docs/PHASE0_ACCEPTANCE.md` ~ `docs/PHASE6_DEBUG_SERVICE.md`
 
 ## 环境
@@ -49,7 +49,7 @@ adb shell am start -n com.dsmobile.app/.ChatActivity
 
 ## 已退役
 
-QQ / Termux / NapCat 手机端链路已于 2026-10-25 卸载，见 [docs/RETIREMENT.md](docs/RETIREMENT.md)。旧的 `ds-qq-client`（Python + NapCat）已从工作区删除。
+QQ / Termux / NapCat 手机端链路已于 2026-10-25 卸载，见 [docs/RETIREMENT.md](docs/archive/RETIREMENT.md)。旧的 `ds-qq-client`（Python + NapCat）已从工作区删除。
 
 > 注意：`local.properties`、keystore、日志不要提交。
 

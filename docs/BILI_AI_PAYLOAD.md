@@ -8,15 +8,15 @@
 
 3×3 网格：
 
-![B站抽帧网格](bili-ai-grid.jpg)
+![B站抽帧网格](screenshots/bili-ai-grid.jpg)
 
 关键帧 1：
 
-![关键帧1](bili-ai-key1.jpg)
+![关键帧1](screenshots/bili-ai-key1.jpg)
 
 关键帧 2：
 
-![关键帧2](bili-ai-key2.jpg)
+![关键帧2](screenshots/bili-ai-key2.jpg)
 
 网格每格左上角有编号，方便模型按时间顺序理解；关键帧从 9 格里选亮度/信息量最高的两张，避开纯黑转场。
 

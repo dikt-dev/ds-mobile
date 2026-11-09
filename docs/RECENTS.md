@@ -37,7 +37,7 @@ android:excludeFromRecents="true"
 
 DS-Mobile 卡片不再出现。
 
-![最近任务为空](recents_final.png)
+![最近任务为空](screenshots/recents_final.png)
 
 ## 注意
 
