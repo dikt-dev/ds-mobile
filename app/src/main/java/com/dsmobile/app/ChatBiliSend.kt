@@ -56,6 +56,8 @@ val paired = coroutineScope {
                 title = bili?.title.orEmpty(),
                 duration = biliDuration.toInt(),
                 cacheKey = (bili?.bvid.orEmpty() + "-" + (bili?.cid ?: 0)),
+                bvid = bili?.bvid.orEmpty(),
+                cid = bili?.cid ?: 0L,
             )
         }.getOrNull().orEmpty()
     } else {

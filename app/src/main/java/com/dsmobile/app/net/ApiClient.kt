@@ -273,19 +273,23 @@ class ApiClient(
 
     suspend fun freshPlayUrl(bvid: String, cid: Long, cookie: String): String = withContext(Dispatchers.IO) {
         if (bvid.isBlank() || cid <= 0) return@withContext ""
-        // ★ 先要 html5 的 mp4 直链：qn=64 会返回 PCDN edge 节点（*.edge.mountaintoys.cn），
-        //   千问 omni 拉不动，800ms 就报 Failed to download multimodal content（2026-11-06）。
-        val attempts = listOf(
-            "https://api.bilibili.com/x/player/playurl?bvid=$bvid&cid=$cid&qn=32&fnval=1&fnver=0&fourk=0&platform=html5",
-            "https://api.bilibili.com/x/player/playurl?bvid=$bvid&cid=$cid&qn=64&fnval=1&fnver=0&fourk=0",
-        )
+        // ★ 直链必须是 CDN（*.bilivideo.com）：qn=64 和**带 Cookie** 的 html5 请求都会返回
+        //   PCDN 节点（*.solseed.cn / *.edge.mountaintoys.cn），千问 omni 拉不动，
+        //   800ms 就报 Failed to download multimodal content（2026-11-06 / 11-10 两次踩到）。
+        //   所以顺序是：先匿名要 html5（实测必得 bilivideo），再带 Cookie，最后才收 PCDN。
+        val attempts = buildList {
+            add("https://api.bilibili.com/x/player/playurl?bvid=$bvid&cid=$cid&qn=32&fnval=1&fnver=0&fourk=0&platform=html5" to false)
+            add("https://api.bilibili.com/x/player/playurl?bvid=$bvid&cid=$cid&qn=16&fnval=1&fnver=0&fourk=0&platform=html5" to false)
+            add("https://api.bilibili.com/x/player/playurl?bvid=$bvid&cid=$cid&qn=32&fnval=1&fnver=0&fourk=0&platform=html5" to true)
+            add("https://api.bilibili.com/x/player/playurl?bvid=$bvid&cid=$cid&qn=64&fnval=1&fnver=0&fourk=0" to true)
+        }
         var pcdnFallback = ""
-        for (url in attempts) {
+        for ((url, withCookie) in attempts) {
             val link = runCatching {
                 val req = Request.Builder().url(url)
                     .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/125.0 Mobile Safari/537.36")
                     .header("Referer", "https://www.bilibili.com/")
-                    .apply { if (cookie.isNotBlank()) header("Cookie", cookie) }
+                    .apply { if (withCookie && cookie.isNotBlank()) header("Cookie", cookie) }
                     .get().build()
                 execute(req).use { resp ->
                     val data = JSONObject(resp.body?.string().orEmpty()).optJSONObject("data")

@@ -533,11 +533,20 @@ private fun ChatScreen(
             // 静帧说明不再拼进正文：那段话以前会落库，然后原样出现在气泡里。
             // 现在只发画面，提示词由服务端补。
             // 模型看完的画面过程塞进 BILI_META 末尾：她拿到的是「按时间的画面」，不是九宫格
-        val replyText = if (media.vision.isNotBlank() && outgoing.contains("[/BILI_META]")) {
-            outgoing.replace(
-                "[/BILI_META]",
-                "\n## 画面过程（按时间，你看这条视频时看到的）\n" + media.vision.trim() + "\n[/BILI_META]",
-            )
+        val replyText = if (outgoing.contains("[/BILI_META]")) {
+            when {
+                // 解析成功：给她按时间的画面过程
+                media.vision.isNotBlank() -> outgoing.replace(
+                    "[/BILI_META]",
+                    "\n## 画面过程（按时间，你看这条视频时看到的）\n" + media.vision.trim() + "\n[/BILI_META]",
+                )
+                // 解析失败：明确告诉她只有标题和简介（2026-11-10）。
+                // 没有这句时她会顺着标题编结局（"结尾是小克戴荆棘冠那种"）。
+                else -> outgoing.replace(
+                    "[/BILI_META]",
+                    "\n## 画面过程\n（这条没解析出画面，你只看得到标题和简介。可以说没点开看、只扫了眼简介，不要描述视频里的镜头和结尾。）\n[/BILI_META]",
+                )
+            }
         } else {
             outgoing
         }
@@ -1314,8 +1323,9 @@ private fun ChatScreen(
                     } else {
                         -1
                     }
-                    val proactiveBreak = message.proactiveKind != null &&
-                        (older == null || older.proactiveKind == null || newDay || gapMinutes >= 10)
+                    // 主动消息永远独立成组：只有单独成组时，元信息行才会显示「大飞鱼 13:38 主动」；
+                    // 并进上一组时那个标记会消失，看起来就像她突然自言自语（2026-11-09）。
+                    val proactiveBreak = message.proactiveKind != null
                     // ★ 时间断档：同一个人隔久了也要另起一组。
                     //   以前只看「是不是同一个人」，于是 10:29 和 13:48 被并成一条，
                     //   第二条完全没有时间（2026-11-08 用户反馈）。

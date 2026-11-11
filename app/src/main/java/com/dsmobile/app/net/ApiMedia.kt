@@ -79,6 +79,8 @@ internal suspend fun ApiClient.biliVision(
     title: String,
     duration: Int,
     cacheKey: String,
+    bvid: String = "",
+    cid: Long = 0L,
 ): String? = withContext(Dispatchers.IO) {
     if (direct.isBlank()) return@withContext null
     runCatching {
@@ -87,6 +89,9 @@ internal suspend fun ApiClient.biliVision(
             .put("title", title)
             .put("duration", duration)
             .put("cacheKey", cacheKey)
+            // 带 Cookie 取的直链常是 PCDN，服务端要靠这两个字段自己再要一条 CDN 直链
+            .put("bvid", bvid)
+            .put("cid", cid)
             .toString()
         val req = Request.Builder()
             .url(baseUrl.trimEnd('/') + "/api/app/bili-vision")
